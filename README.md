@@ -1,21 +1,19 @@
 # back-hackaton-CTW-2026
 
-Basic Django + PostgreSQL project skeleton.
+Basic Django + PostgreSQL project skeleton. Dependencies managed with [uv](https://docs.astral.sh/uv/).
 
 ## Setup
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+uv sync                       # creates .venv and installs deps
 cp .env.example .env          # adjust DB_* if needed
 
 docker compose up -d          # Postgres 16
 
-python manage.py migrate
-python manage.py runserver
+uv run manage.py migrate
+uv run manage.py runserver
 ```
 
 Admin at `http://127.0.0.1:8000/admin/`.
 
-Add apps with `python manage.py startapp <name>`, then register in `INSTALLED_APPS`.
+Add dependencies with `uv add <package>`. Add apps with `uv run manage.py startapp <name>`, then register in `INSTALLED_APPS`.
