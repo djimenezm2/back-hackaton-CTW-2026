@@ -10,16 +10,34 @@ Django 5 + PostgreSQL 16 with PostGIS and pgvector. Dependencies managed with
 ## Setup
 
 ```bash
-uv sync                       # creates .venv and installs deps
-cp .env.example .env          # adjust DB_* if needed
-
-docker compose up -d          # builds Postgres+PostGIS+pgvector, and Redis
-
-uv run manage.py migrate
-uv run manage.py runserver
+make init      # creates .venv, installs deps, seeds .env from .env.example
+make up        # builds Postgres+PostGIS+pgvector, starts it and Redis
+make migrate
+make run
 ```
 
-Admin at `http://127.0.0.1:8000/admin/`.
+`make help` lists every target. Admin at `http://127.0.0.1:8000/admin/`.
+
+## Development
+
+```bash
+make check     # ruff lint + ruff format --check + pyrefly + pytest
+```
+
+Run those individually with `make lint`, `make format`, `make types`, `make test`.
+
+Formatting is ruff's default, so double quotes. Ruff skips `*/migrations/*` because Django
+writes those and reformatting them makes every migration diff unreadable, and `RUF012` is
+disabled inside `models/` because Django's `Meta` is a declarative API rather than the
+mutable shared state that rule is about.
+
+Type checking uses pyrefly with `django-stubs`, at `min-severity = "warn"` so deprecations
+surface instead of rotting under the default error floor. It is pinned to Python 3.12 to
+match `requires-python`, not the local interpreter, so anything newer gets flagged here
+rather than in someone else's environment.
+
+Tests live next to the code they cover. The default run is hermetic — anything needing
+Postgres, Azure or Apify is marked `live` and excluded, so `make test LIVE=1` is the opt-in.
 
 ### Ports
 

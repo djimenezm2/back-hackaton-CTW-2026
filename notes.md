@@ -1,19 +1,19 @@
-# Notas — Validación hipótesis Apify MCP (Hackathon CTW 2026)
+# Notes — Apify MCP hypothesis validation (Hackathon CTW 2026)
 
-## Objetivo
+## Goal
 
-Validar que un agente puede descubrir, de forma autónoma y efectiva, información accionable
-sobre un desastre natural (terremoto Colombia, 10 de agosto de 2026) scrapeando redes sociales:
-personas que necesitan ayuda, lugares afectados, puntos de acopio, empresas y voluntarios que
-ofrecen recursos — y conectar oferta con demanda.
+Validate that an agent can autonomously and effectively discover actionable information about
+a natural disaster (Colombia earthquake, 10 August 2026) by scraping social media: people who
+need help, affected places, collection points, companies and volunteers offering resources —
+and connect supply with demand.
 
-Prueba **black box**: el único dato de partida es la fecha del evento.
+**Black box test**: the only starting fact given was the date of the event.
 
 ---
 
 ## Setup
 
-MCP remoto de Apify, scope `local` (en `~/.claude.json`, no toca el repo).
+Remote Apify MCP, `local` scope (in `~/.claude.json`, does not touch the repo).
 
 ```bash
 claude mcp add --transport http apify \
@@ -22,353 +22,359 @@ claude mcp add --transport http apify \
   --scope local
 ```
 
-- Endpoint: `https://mcp.apify.com` (streamable HTTP). SSE queda deprecado el 1 de abril de 2026.
-- Auth por Bearer token o OAuth. Se usó token porque la sesión no puede completar el flujo OAuth.
-- Requiere reiniciar Claude Code: los servidores MCP se cargan al arrancar.
-- Rate limit: 30 req/s por usuario.
-- Token de validación — rotar o borrar al terminar el hackathon.
+- Endpoint: `https://mcp.apify.com` (streamable HTTP). SSE is deprecated as of 1 April 2026.
+- Auth via Bearer token or OAuth. Token was used because the session cannot complete the
+  OAuth flow.
+- Requires restarting Claude Code: MCP servers load at startup.
+- Rate limit: 30 req/s per user.
+- Validation token — rotate or delete when the hackathon ends.
 
 ---
 
-## Arquitectura de Apify: dos capas
+## Apify architecture: two layers
 
-**Capa 1 — Store (los Actors).** ~6.000 programas de scraping, cada uno hace una cosa. Viven en
-la nube de Apify, no se instalan. Cada Actor tiene su propio *input schema* y su propio precio.
+**Layer 1 — Store (the Actors).** ~6,000 scraping programs, each doing one thing. They live in
+Apify's cloud, nothing is installed. Each Actor has its own *input schema* and its own price.
 
-**Capa 2 — MCP (el puente).** No expone scrapers, expone tools genéricas para operar el catálogo:
+**Layer 2 — MCP (the bridge).** It does not expose scrapers; it exposes generic tools for
+operating the catalog:
 
-| Tool | Función |
+| Tool | Function |
 |---|---|
-| `search-actors` | descubrir Actors en el Store |
-| `fetch-actor-details` | leer el input schema de un Actor |
-| `call-actor` | ejecutarlo con un JSON de input → devuelve `datasetId` |
-| `get-dataset-items` | leer los resultados |
-| `get-actor-run` / `get-actor-log` | debug |
+| `search-actors` | discover Actors in the Store |
+| `fetch-actor-details` | read an Actor's input schema |
+| `call-actor` | run it with a JSON input → returns a `datasetId` |
+| `get-dataset-items` | read the results |
+| `get-actor-run` / `get-actor-log` | debugging |
 
-Los Actors se descubren en **runtime**. Esa es la propiedad que hace posible la prueba black box:
-no hay que codear de antemano qué herramienta se usa.
-
----
-
-## Costes
-
-- Free tier Apify: **$5/mes** de crédito. Planes: Starter $29, Scale $199, Business $999.
-- Scrapers de X, pago por resultado:
-  - `apidojo/tweet-scraper` — $0.40 / 1K tweets
-  - `kaitoeasyapi/twitter-x-data-tweet-scraper-pay-per-result-cheapest` — $0.18 / 1K
-  - `api-ninja/x-twitter-advanced-search` — 50+ filtros (geo, tiempo, engagement)
-  - `knowten/twitter-scraper-ultra` — $0.30 / 1K, con análisis de sentimiento
-- Presupuesto del piloto: **$5** (todo el free tier).
+Actors are discovered **at runtime**. That property is what makes the black-box test possible:
+nothing needs to be coded in advance about which tool gets used.
 
 ---
 
-## Diseño del agente (producción)
+## Costs
 
-Orquestador autónomo de descubrimiento y priorización: parte de un evento, scrapea, guarda
-entidades (posts, comentarios, perfiles, historias, hashtags, ubicaciones), puntúa relevancia /
-credibilidad / actividad / cercanía al evento, y decide qué explorar después. Mantiene una
-frontera de búsqueda priorizada y reasigna presupuesto dinámicamente.
-
-Patrón: **focused crawler con frontera priorizada** + asignación tipo *multi-armed bandit*.
-
-Stack previsto: deepagents (LangGraph) + MCP de Apify.
-
-### MCP vs API directa — híbrido
-
-- **MCP** para el bucle de descubrimiento: el agente necesita `search-actors` y
-  `fetch-actor-details` en runtime para usar herramientas que nadie codeó de antemano.
-- **`apify-client` directo** para lo ya decidido: cuando el agente resuelve "esta cuenta se
-  scrapea cada 15 min", eso baja a una tarea determinista. Un LLM en el camino crítico de un
-  cron que corre 500 veces al día es caro, lento y no determinista.
-
-### Tres problemas de diseño
-
-1. **El recurso escaso es el crédito, no el tiempo.** El score debe ser coste-beneficio, no solo
-   relevancia. Sin coste en la función, el agente quema el presupuesto en las fuentes caras.
-2. **Cold start.** Una cuenta nueva no tiene score. Si el agente solo explota lo ya puntuado, se
-   encierra en una burbuja y nunca encuentra la vereda incomunicada de la que nadie hablaba hace
-   20 minutos — el caso de mayor valor. Hace falta exploración forzada (ε-greedy o similar).
-3. **Los runs de Apify son asíncronos.** `call-actor` vía MCP bloquea. Con una frontera de 200
-   fuentes no escala: en producción hacen falta runs lanzados + webhooks.
+- Apify free tier: **$5/month** of credit. Plans: Starter $29, Scale $199, Business $999.
+- Pay-per-result pricing for the actors used:
+  - `kaitoeasyapi/twitter-x-data-tweet-scraper-pay-per-result-cheapest` — $0.00025 / tweet
+  - `apify/instagram-hashtag-scraper` — $0.0026 / post
+  - `scraper_one/facebook-posts-search` — $0.0025 / post
+  - `clockworks/tiktok-scraper` — $0.0037 / video
+  - `clockworks/tiktok-comments-scraper` — $0.00125 / comment
+- Pilot budget: **$5** (the whole free tier).
 
 ---
 
-## Riesgos de la hipótesis
+## Agent design (production)
 
-1. **El cuello de botella es la verificación, no el scraping.** Sacar 20K posts es trivial. Un
-   punto de acopio que ya cerró, o un "necesitamos agua" ya resuelto, es *peor que nada*: desvía
-   recursos reales. Frescura y estado son el problema difícil.
-2. **Geolocalización.** Casi ningún post trae geo. Hay que inferirla del texto
-   ("vereda El Palmar, Líbano"). Aquí se va el tiempo.
-3. **X puede no ser donde pasa esto en Colombia.** La coordinación real de desastres en LatAm
-   vive en WhatsApp y grupos de Facebook. X da la capa mediática y de ONGs. Si se confirma,
-   es el hallazgo más importante — cambia hacia dónde apunta el producto.
+Autonomous discovery and prioritization orchestrator: starts from an event, scrapes, stores
+entities (posts, comments, profiles, stories, hashtags, locations), scores relevance,
+credibility, activity and proximity to the event, and decides what to explore next. Maintains
+a prioritized search frontier and reallocates budget dynamically.
+
+Pattern: **focused crawler with a prioritized frontier** plus *multi-armed bandit* allocation.
+
+Planned stack: deepagents (LangGraph) + Apify MCP + Azure OpenAI.
+
+### MCP vs direct API — hybrid
+
+- **MCP** for the discovery loop: the agent needs `search-actors` and `fetch-actor-details` at
+  runtime to use tools nobody coded in advance.
+- **`apify-client` directly** for what is already decided: once the agent settles on "this
+  account gets scraped every 15 minutes", that becomes a deterministic task. An LLM on the
+  critical path of a cron running 500 times a day is expensive, slow and non-deterministic.
+
+### Three design problems
+
+1. **The scarce resource is credit, not time.** The score must be cost-benefit, not just
+   relevance. Without cost in the function, the agent burns the budget on expensive sources.
+2. **Cold start.** A new account has no score. If the agent only exploits what is already
+   scored, it locks itself into a bubble and never finds the cut-off rural district nobody was
+   talking about twenty minutes ago — the highest-value case. Forced exploration is required
+   (ε-greedy or similar).
+3. **Apify runs are asynchronous.** `call-actor` over MCP blocks. With a frontier of 200
+   sources it does not scale: production needs launched runs plus webhooks.
 
 ---
 
-## Plan del piloto
+## Hypothesis risks
 
-**Presupuesto: $5. Alcance: X (Twitter) + Instagram.** Facebook se deja para después de validar.
+1. **The bottleneck is verification, not scraping.** Pulling 20K posts is trivial. A collection
+   point that already closed, or a "we need water" that was already solved, is *worse than
+   nothing*: it diverts real resources. Freshness and status are the hard problem.
+2. **Geolocation.** Almost no post carries geo. It has to be inferred from text ("vereda El
+   Palmar, Líbano"). This is where the time goes.
+3. **X may not be where this happens in Colombia.** Real disaster coordination in Latin
+   America lives on WhatsApp and Facebook groups. X provides the media and NGO layer. If
+   confirmed, that is the most important finding — it changes where the product points.
 
-**Fase 0 — Ground truth (gratis).** Fuentes primarias (SGC, USGS) para magnitud, epicentro y
-municipios. Sin esto no hay vocabulario de búsqueda: hacen falta los nombres reales de veredas
-y municipios, que es lo que la gente escribe.
+---
 
-**Fase 1 — Cosecha en dos ejes.**
-- *Demanda*: "necesitamos", "no ha llegado ayuda", "estamos incomunicados", "se cayó",
-  "damnificados", "urgente" + municipio.
-- *Oferta*: "punto de acopio", "recibimos donaciones", "tengo camioneta", "llevo mercados",
+## Pilot plan
+
+**Budget: $5. Scope: X (Twitter) + Instagram.** Facebook deferred until after validation.
+
+**Phase 0 — Ground truth (free).** Primary sources (SGC, USGS) for magnitude, epicenter and
+municipalities. Without this there is no search vocabulary: the real names of rural districts
+and municipalities are what people actually write.
+
+**Phase 1 — Harvest along two axes.**
+- *Demand*: "necesitamos", "no ha llegado ayuda", "estamos incomunicados", "se cayó",
+  "damnificados", "urgente" + municipality.
+- *Supply*: "punto de acopio", "recibimos donaciones", "tengo camioneta", "llevo mercados",
   "voluntarios", "cuenta de recolección".
 
-**Fase 2 — Estructuración.** Por item: tipo (oferta/demanda), categoría (agua, comida, medicina,
-techo, transporte, rescate), ubicación, contacto, timestamp, confianza.
+**Phase 2 — Structuring.** Per item: axis (supply/demand), category (water, food, medicine,
+shelter, transport, rescue), location, contact, timestamp, confidence.
 
-**Fase 3 — Matching** oferta ↔ demanda. Aquí está el producto.
+**Phase 3 — Matching** supply ↔ demand. This is where the product lives.
 
-### Criterio de éxito
+### Success criteria
 
-Con ≤$5 de crédito, el piloto es **viable** si produce:
+With ≤$5 of credit, the pilot is **viable** if it produces:
 
-- ≥30 items estructurados y accionables (con contacto o ubicación concreta)
-- ≥60% de precisión al verificarlos a mano
-- ≥5 matches plausibles oferta ↔ demanda
+- ≥30 structured, actionable items (with a concrete contact or location)
+- ≥60% precision on manual verification
+- ≥5 plausible supply ↔ demand matches
 
-Si el resultado son 500 tweets de medios diciendo "sismo de magnitud X" y cero personas pidiendo
-ayuda concreta, la hipótesis se cae — y ese también es un resultado válido.
+If the result is 500 press tweets saying "magnitude X earthquake" and zero people asking for
+concrete help, the hypothesis fails — and that is a valid result too.
 
 ---
 
-# RESULTADOS DEL PILOTO (15 de agosto de 2026)
+# PILOT RESULTS (15 August 2026)
 
-**Veredicto: hipótesis validada. Gasto $0.39 de $5.**
+**Verdict: hypothesis validated. Spend: $0.39 of $5.**
 
-## Ground truth (Fase 0, sin coste)
+## Ground truth (Phase 0, no cost)
 
-Terremoto de magnitud 7,4 el lunes 10 de agosto de 2026, 07:34 hora local (12:34 UTC).
-Epicentro en San José del Palmar, Chocó (4.99 N, -76.29 O), profundidad ~103 km.
-294+ muertos, 3.970+ heridos, 379+ desaparecidos, 47 réplicas, 21 municipios afectados.
+Magnitude 7.4 earthquake on Monday 10 August 2026, 07:34 local (12:34 UTC). Epicenter at San
+José del Palmar, Chocó (4.99 N, -76.29 W), depth ~103 km. 294+ dead, 3,970+ injured, 379+
+missing, 47 aftershocks, 21 affected municipalities.
 
-Más golpeados: Pereira (66 muertos, toque de queda), Cali (edificio Vanessa, HUV parcialmente
-colapsado), Quimbaya (450 casas destruidas, 800 familias damnificadas), Quibdó, Manizales,
-Buenaventura. Aeropuertos suspendidos en Pereira, Manizales, Quibdó, Armenia, Cartago,
-Buenaventura y Cali. Vías cerradas: Cali-Loboguerrero, Quimbaya-Montenegro.
+Worst hit: Pereira (66 dead, curfew), Cali (Vanessa building, HUV hospital partially
+collapsed), Quimbaya (450 houses destroyed, 800 displaced families), Quibdó, Manizales,
+Buenaventura. Airports suspended in Pereira, Manizales, Quibdó, Armenia, Cartago, Buenaventura
+and Cali. Roads closed: Cali-Loboguerrero, Quimbaya-Montenegro.
 
-## Ejecución
+## Execution
 
-| Plataforma | Actor | Resultado | Coste |
+| Platform | Actor | Result | Cost |
 |---|---|---|---|
-| X | `kaitoeasyapi/twitter-x-data-tweet-scraper-...` | 400 tweets, 10 queries, 339 autores únicos | $0.10 |
+| X | `kaitoeasyapi/twitter-x-data-tweet-scraper-...` | 400 tweets, 10 queries, 339 unique authors | $0.10 |
 | Instagram | `apify/instagram-hashtag-scraper` | 112 posts, 5 hashtags | $0.29 |
 
-## Contra el criterio de éxito
+## Against the success criteria
 
-| Umbral | Resultado |
+| Threshold | Result |
 |---|---|
-| ≥30 items accionables | **77** (39 en X + 38 en IG) |
-| ≥60% precisión | ~85% en la muestra revisada a mano |
-| ≥5 matches oferta↔demanda | **8** |
+| ≥30 actionable items | **77** (39 on X + 38 on IG) |
+| ≥60% precision | ~85% on the manually reviewed sample |
+| ≥5 supply↔demand matches | **8** |
 
-### Matches encontrados
+### Matches found
 
-1. Pereira sector Gamma/La Villa, "gente sin comer" (15 ago) ↔ camión Barranquilla→Pereira
-   saliendo el 16, punto de acopio Metro Plaza Local 101
-2. Cali, Bueno Madrid Cra 5 norte con calle 34, 8+ familias desalojadas sin colchonetas ni
-   carpas ↔ Ciudadela Petronio, Unidad Deportiva Alberto Galindo, Cali
-3. Quibdó sector Cabí, familias esperando evaluación ↔ Palacio de los Deportes, Calle 63
-   #54A-06 Bogotá, acopio exclusivo para Chocó hasta el 16 de agosto
-4. Manizales, "se agotaron las ayudas" ↔ camión Medellín→Manizales para Villamaría y veredas
-   La Nueva Primavera y San Julián; Coliseo Menor recibiendo donaciones
-5. Puntos de acopio de Cali con excedente ↔ particular ofreciendo sus buses para redistribuir
-   a municipios del norte del Valle
-6. Pereira, cobijas y manos para remover escombros ↔ +57 310 4142969, Taller el Adorno, Pereira
-7. Calima-El Darién ↔ camión saliendo el domingo 16, pide colchonetas y sábanas
-8. Pereira, 2 fundaciones caninas destruidas piden material de construcción ↔ PMU Animal Cali
-   y colectivos de rescate animal yendo al Chocó
+1. Pereira, Gamma and La Villa sector, "people with nothing to eat" (15 Aug) ↔ truck
+   Barranquilla→Pereira leaving on the 16th, collection point Metro Plaza Local 101
+2. Cali, Bueno Madrid, Cra 5 norte con calle 34, 8+ evicted families with no mats or tents ↔
+   Ciudadela Petronio, Unidad Deportiva Alberto Galindo, Cali
+3. Quibdó, Cabí sector, families awaiting assessment ↔ Palacio de los Deportes, Calle 63
+   #54A-06 Bogotá, collection exclusively for Chocó until 16 August
+4. Manizales, "aid has run out" ↔ truck Medellín→Manizales for Villamaría and the La Nueva
+   Primavera and San Julián rural districts; Coliseo Menor receiving donations
+5. Cali collection points with surplus ↔ private individual offering his buses to redistribute
+   to municipalities in northern Valle
+6. Pereira, blankets and hands for debris removal ↔ +57 310 4142969, Taller el Adorno, Pereira
+7. Calima-El Darién ↔ truck leaving Sunday the 16th, asking for mats and sheets
+8. Pereira, two destroyed dog shelters asking for construction material ↔ PMU Animal Cali and
+   animal rescue collectives heading to Chocó
 
-## Hallazgos que cambian el diseño
+## Findings that change the design
 
-**1. X e Instagram cubren ejes distintos, no son redundantes.**
-X trae **oferta y demanda**; es la única fuente donde aparece el particular diciendo "en este
-barrio hay gente sin comer". Instagram es casi **solo oferta**: comercios, fundaciones y marcas
-anunciando puntos de acopio con dirección y horario. Hay que scrapear ambas, con queries
-distintas. Facebook probablemente refuerce el eje demanda — vale la pena la siguiente ronda.
+**1. X and Instagram cover different axes; they are not redundant.**
+X carries **both supply and demand**; it is the only source where a private individual says
+"there are people with nothing to eat in this neighborhood". Instagram is almost **supply
+only**: shops, nonprofits and brands announcing collection points with address and hours. Both
+must be scraped, with different queries. Facebook will probably reinforce the demand axis —
+worth a next round.
 
-**2. Toda query necesita anclaje toponímico colombiano.**
-Sin nombre de municipio, las búsquedas se contaminan con los terremotos de Venezuela, Perú,
-Indonesia, Granada y Ecuador (19/400 en el sondeo). El término "punto de acopio" solo también
-trae ruido de Perú. El anclaje geográfico no es un filtro opcional: es parte de la query.
+**2. Every query needs a Colombian toponym anchor.**
+Without a municipality name, searches were contaminated by earthquakes in Venezuela, Peru,
+Indonesia, Granada and Ecuador (19/400 in the probe). "Punto de acopio" alone also pulled
+noise from Peru. Geographic anchoring is not an optional filter: it is part of the query.
 
-**3. La geolocalización confirmada como el problema difícil.**
-Solo 6 de 400 tweets (1,5%) traen campo `place`. Instagram va mucho mejor: 37 de 110 (34%)
-traen `locationName`. Pero la ubicación útil casi siempre está en el **texto**
-("sector Gamma y La Villa, por el estadio", "Cra 5 norte con calle 34") y hay que extraerla
-y geocodificarla con NER.
+**3. Geolocation confirmed as the hard problem.**
+Only 6 of 400 tweets (1.5%) carry a `place` field. Instagram does much better: 37 of 110
+(34%) carry `locationName`. But the useful location almost always sits in the **text**
+("Gamma and La Villa sector, by the stadium", "Cra 5 norte con calle 34") and has to be
+extracted and geocoded with NER.
 
-**4. Frescura: la demanda sigue viva a los 5 días.**
-El post de Pereira con "gente sin comer" es del 15 de agosto, cinco días después del sismo.
-La ventana de utilidad es mucho más larga de lo que asumía el diseño inicial.
+**4. Freshness: demand is still live five days later.**
+The Pereira post about "people with nothing to eat" is from 15 August, five days after the
+quake. The useful window is much longer than the initial design assumed.
 
-**5. Aparece un tipo de ruido no previsto: la disputa política.**
-Parte sustancial del volumen es discusión sobre el manejo gubernamental de las ayudas, no
-información operativa. El clasificador necesita una clase explícita de descarte para esto,
-o inunda la frontera de búsqueda.
+**5. An unforeseen kind of noise appears: political argument.**
+A substantial share of the volume is debate about the government's handling of aid, not
+operational information. The classifier needs an explicit discard class for this, or it floods
+the search frontier.
 
-**6. El scraper de hashtags de Instagram no filtra por fecha.**
-Devolvió posts de 2019. Hay que filtrar por `timestamp` en post-proceso.
+**6. Instagram's hashtag scraper does not filter by date.**
+It returned posts from 2019. Filter on `timestamp` in post-processing.
 
-## Rendimiento por query (X)
+## Query performance (X)
 
-Funcionan: "punto de acopio" + municipio, "damnificados" + municipio, albergue/mercados.
-Fallan: frases genéricas sin anclaje ("estamos incomunicados", "sin agua") y las de recursos
-propios ("tengo camioneta") — falsos positivos casi puros. Los hashtags dan cobertura mediática,
-no accionable.
-
----
-
-# RONDA 2 — FACEBOOK (15 de agosto de 2026)
-
-Actor: `scraper_one/facebook-posts-search`, $0.0025 por resultado. Tres queries, 100 posts,
-$0.26. Ojo: `searchType` solo acepta `top` o `latest`, no `posts` — falla la validación.
-
-**37 de 100 accionables: la mejor densidad de las tres plataformas.**
-
-## Facebook resuelve el problema de la cola larga
-
-Es el hallazgo de esta ronda. La query de veredas y corregimientos sacó municipios pequeños
-que no aparecieron ni en X ni en Instagram ni en la cobertura de prensa:
-
-- **Herveo, Tolima** — 80 familias afectadas, la alcaldesa pidiendo ayuda a nivel nacional.
-  Tolima ni siquiera figuraba en el ground truth de departamentos afectados.
-- **Resguardo Tocordo Balsalito, Litoral del San Juan, Chocó** — comunidades del pueblo
-  Wounaan, familias sin vivienda. Zona rural indígena, invisible para la prensa.
-- **Vereda Guaimía, corregimiento 8 de Buenaventura** — organización de mujeres
-  afrocolombianas movilizándose.
-- **Vijes (Valle)** — "apadrinado" por la alcaldía de Soacha.
-
-Una de las fuentes lo dice explícitamente: *"varios municipios pequeños donde también hubo
-emergencia de infraestructura no han tenido la relevancia pública debida para recibir las
-ayudas"*. El sesgo mediático hacia las capitales es justamente el hueco que el producto llena.
-
-## Facebook también trae los datos de pago
-
-Cuentas Bancolombia, Nequi, Davivienda y llaves Bre-B aparecen literales en el texto, cosa que
-casi no pasa en X. Y trae direcciones completas de puntos de acopio con horario.
-
-## El modelo Soacha→Vijes
-
-Municipios no afectados "apadrinando" municipios afectados: Soacha→Vijes,
-Fusagasugá→Quibdó, Medellín→Pereira, Barranquilla→Pereira, Bogotá→Chocó.
-Esto confirma el modelo de dos zonas: las ciudades no afectadas no son ruido, son
-**nodos de oferta**. Hay que scrapearlas con queries distintas.
+Working: "punto de acopio" + municipality, "damnificados" + municipality, shelter/supplies.
+Failing: generic unanchored phrases ("estamos incomunicados", "sin agua") and own-resource
+phrasing ("tengo camioneta") — near-pure false positives. Hashtags give media coverage, not
+actionable items.
 
 ---
 
-# COMPARATIVA FINAL DE PLATAFORMAS
+# ROUND 2 — FACEBOOK (15 August 2026)
 
-| | X | Instagram | Facebook |
-|---|---|---|---|
-| Actor | `kaitoeasyapi/twitter-x-data-...` | `apify/instagram-hashtag-scraper` | `scraper_one/facebook-posts-search` |
-| Coste unitario | $0.00025 | $0.0026 | $0.0025 |
-| Muestra | 400 | 112 | 100 |
-| Accionables | 39 (9,8%) | 38 (34%) | 37 (37%) |
-| Coste por accionable | **$0.0026** | $0.0077 | $0.0070 |
-| Geo estructurado | 1,5% (`place`) | 34% (`locationName`) | ninguno |
-| Eje demanda | sí | casi nulo | **sí, el mejor** |
-| Eje oferta | sí | **sí, el mejor** | sí |
-| Cola larga rural | no | no | **sí** |
-| Datos de pago | raro | a veces | **frecuente** |
-| Filtro de fecha nativo | sí | **no** | sí |
+Actor: `scraper_one/facebook-posts-search`, $0.0025 per result. Three queries, 100 posts,
+$0.26. Note: `searchType` only accepts `top` or `latest`, not `posts` — validation fails
+otherwise.
 
-**X** es el más barato por item accionable y el único con buen filtrado temporal y de volumen:
-sirve para barrido amplio y para el eje demanda urbano.
-**Instagram** es el directorio de puntos de acopio comerciales, con geo estructurado.
-**Facebook** es el que encuentra a quien nadie está mirando. Es el más valioso para la misión
-aunque no sea el más barato.
+**37 of 100 actionable: the best density of the three platforms.**
 
-Gasto total tras tres plataformas: **$0.65 de $5**.
+## Facebook solves the long-tail problem
+
+This is the finding of this round. The rural-district query surfaced small municipalities that
+appeared on neither X nor Instagram nor in press coverage:
+
+- **Herveo, Tolima** — 80 affected families, the mayor asking for national help. Tolima did
+  not even appear in the ground-truth list of affected departments.
+- **Tocordo Balsalito reserve, Litoral del San Juan, Chocó** — Wounaan communities, families
+  without housing. Rural indigenous area, invisible to the press.
+- **Guaimía rural district, corregimiento 8 of Buenaventura** — an Afro-Colombian women's
+  organization mobilizing.
+- **Vijes (Valle)** — "adopted" by the Soacha city hall.
+
+One of the sources says it outright: *"several small municipalities that also had
+infrastructure emergencies have not had the public visibility needed to receive aid"*. Media
+bias toward capitals is exactly the gap the product fills.
+
+## Facebook also carries payment details
+
+Bancolombia accounts, Nequi, Davivienda and Bre-B keys appear literally in the text, which
+barely happens on X. And it carries full collection-point addresses with opening hours.
+
+## The Soacha→Vijes model
+
+Unaffected municipalities "adopting" affected ones: Soacha→Vijes, Fusagasugá→Quibdó,
+Medellín→Pereira, Barranquilla→Pereira, Bogotá→Chocó. This confirms the two-zone model:
+unaffected cities are not noise, they are **supply nodes**. They must be scraped with
+different queries.
 
 ---
 
-# RONDA 3 — TIKTOK (15 de agosto de 2026)
+# ROUND 3 — TIKTOK (15 August 2026)
 
-## Un actor caído, y cómo se detecta
+## A dead actor, and how to detect it
 
-`apidojo/tiktok-scraper` ($0.0003/post, el más barato del Store) devuelve `noResults` para
-todo, incluido un control con la keyword `"podcast"` sin filtros. No es un problema de queries:
-el actor está roto o bloqueado. **Un run que devuelve `SUCCEEDED` con `itemCount: 10` y un solo
-campo `noResults` no es un run vacío legítimo — es un fallo silencioso.** El agente tiene que
-detectar esa firma y hacer failover a otro actor, no interpretarlo como "no hay señal".
+`apidojo/tiktok-scraper` ($0.0003/post, the cheapest in the Store) returns `noResults` for
+everything, including a control using the keyword `"podcast"` with no filters. It is not a
+query problem: the actor is broken or blocked. **A run returning `SUCCEEDED` with
+`itemCount: 10` and a single `noResults` field is not a legitimate empty run — it is a silent
+failure.** The agent has to detect that signature and fail over to another actor, not read it
+as "no signal here".
 
-Failover: `clockworks/tiktok-scraper`, $0.0037 por video. 12× más caro pero funciona.
+Failover: `clockworks/tiktok-scraper`, $0.0037 per video. 12× more expensive but it works.
 
-## Resultados
+## Results
 
-100 videos, **9 accionables en captions (9%)** — la densidad más baja de las cuatro plataformas.
-Coste por accionable: **$0.041**, 16× peor que X. TikTok no sirve para barrido.
+100 videos, **9 actionable in captions (9%)** — the lowest density of the four platforms. Cost
+per actionable: **$0.041**, 16× worse than X. TikTok is not for sweeping.
 
-**Pero la calidad de lo que sí trae no tiene comparación.** Dos ejemplos:
+**But the quality of what it does return is unmatched.** Two examples:
 
-> 📍Vereda Kilómetro 41 📲Número de contacto: 314 483 7303 Yensi Paola, persona que tiene
-> contacto directo con las familias afectadas
+> 📍Vereda Kilómetro 41 📲Contact number: 314 483 7303 Yensi Paola, person with direct contact
+> to the affected families
 
-> Se necesita ayudas en esta zona. En Cuba, Pereira. Persona encargada 300 2377012 Janeth
-> (deben subir por Villa Ligia porque si suben por Leningrado hay gente no damnificada
-> aprovechándose y quedándose con las cosas)
+> Help is needed in this area. In Cuba, Pereira. Person in charge 300 2377012 Janeth (you have
+> to come up through Villa Ligia, because if you come up through Leningrado there are people
+> who are not victims taking advantage and keeping the goods)
 
-El segundo es inteligencia operativa que no existe en ninguna fuente oficial: no solo dónde
-está la necesidad y quién la coordina, sino **por qué ruta entrar para que la ayuda no se
-desvíe**. Eso no lo publica una alcaldía.
+The second is operational intelligence that exists in no official source: not just where the
+need is and who coordinates it, but **which route to take so the aid is not diverted**. No
+city hall publishes that.
 
-## Geolocalización: la granularidad más fina
+## Geolocation: the finest granularity
 
-`locationMeta.locationName` viene en el 19% de los videos, por debajo de Instagram (34%), pero
-la granularidad es mucho mejor: `"Vereda Kilómetro 41"`, `"Cuchilla de los Castros, Cuba,
-PEREIRA"`. Instagram da ciudad; TikTok da vereda y barrio. Para el eje demanda eso vale más
-que la tasa de cobertura.
+`locationMeta.locationName` arrives on 19% of videos, below Instagram (34%), but the
+granularity is far better: `"Vereda Kilómetro 41"`, `"Cuchilla de los Castros, Cuba,
+PEREIRA"`. Instagram gives you a city; TikTok gives you a rural district or a neighborhood.
+For the demand axis that is worth more than the coverage rate.
 
-## Señal de emergencia encadenada
+## Cascading emergency signal
 
-TikTok fue la única fuente que trajo los desastres secundarios: **inundaciones en Quibdó** en
-la noche del 14 tras el terremoto, y un **vendaval en el corregimiento de Casacará (Agustín
-Codazzi, Cesar)**. El agente debe tratar esto como disparador de re-evaluación del evento, no
-como ruido: una zona ya golpeada que se inunda cambia por completo la prioridad.
+TikTok was the only source that surfaced the secondary disasters: **flooding in Quibdó** on
+the night of the 14th following the earthquake, and a **windstorm in the Casacará
+corregimiento (Agustín Codazzi, Cesar)**. The agent must treat this as a trigger to
+re-evaluate the event, not as noise: an already-hit area that then floods changes priority
+completely.
 
-## Comentarios: 227 analizados
+## Comments: 227 analyzed
 
-Probada la hipótesis original de minar comentarios. Resultado matizado:
+The original hypothesis about mining comments was tested. Nuanced result:
 
-| Señal | Aciertos |
+| Signal | Hits |
 |---|---|
-| Teléfono de contacto | 0 / 227 |
-| Lugar fino (barrio, vereda, sector) | 5 / 227 |
-| Necesidad expresada | 14 / 227 |
-| Persona buscando cómo ayudar | 2 / 227 |
+| Contact phone number | 0 / 227 |
+| Fine-grained location (neighborhood, rural district) | 5 / 227 |
+| Expressed need | 14 / 227 |
+| Person looking for how to help | 2 / 227 |
 
-**Como fuente de items estructurados, los comentarios son malos** (~6% de densidad, muy por
-debajo de FB o IG). Pero contienen algo que ninguna otra capa tiene:
+**As a source of structured items, comments are poor** (~6% density, far below FB or IG). But
+they contain something no other layer has:
 
-> «hola tengo niños y los alimentos escasearon dónde puedo ir»
-> «Para las personas que necesitan comida ¿dónde se puede ir?»
-> «¿siguen necesitando voluntarios en el Coliseo Mayor???»
-> «vayan para la zona norte de Quibdó, barrio La Victoria»
-> «mi municipio que queda en el departamento del Chocó necesita ayuda»
+> "hi I have children and food ran out where can I go"
+> "for people who need food, where can they go?"
+> "do they still need volunteers at the Coliseo Mayor???"
+> "go to the north side of Quibdó, La Victoria neighborhood"
+> "my municipality in Chocó department needs help"
 
-Los comentarios son donde vive la **demanda insatisfecha de información**. Gente que necesita
-ayuda y no sabe a dónde ir; gente que quiere ayudar y no sabe dónde. Son literalmente los
-usuarios del producto, escribiendo su necesidad en texto plano. Y los locales nombran barrios
-desatendidos que ninguna otra capa reportó.
+Comments are where **unmet demand for information** lives. People who need help and do not
+know where to go; people who want to help and do not know where. They are literally the
+product's users, writing their need in plain text. And locals name underserved neighborhoods
+that no other layer reported.
 
-**Conclusión: los comentarios no son capa de cosecha, son capa de descubrimiento.** Sirven para
-alimentar la frontera con topónimos nuevos y para medir demanda de producto, no para llenar la
-base de datos de items.
+**Conclusion: comments are not a harvest layer, they are a discovery layer.** Use them to feed
+the frontier new toponyms and to measure product demand, not to fill the item database.
 
-Nota operativa: los contactos migran a mensaje directo («comunicarse al interno»). El teléfono
-casi nunca queda en el comentario público.
+Operational note: contacts migrate to direct message ("DM me"). The phone number almost never
+stays in the public comment.
 
-## Papel de TikTok
+## TikTok's role
 
-No es plataforma de barrido. Es **instrumento de precisión para el anillo T0**: pocas consultas,
-alta frecuencia, solo sobre la zona de impacto, donde su granularidad hasta vereda y su acceso
-a coordinadores locales de a pie justifica pagar 16× más por item.
+Not a sweeping platform. It is a **precision instrument for ring T0**: few queries, high
+frequency, impact zone only, where its rural-district granularity and its access to on-foot
+local coordinators justify paying 16× more per item.
 
-Gasto total del piloto: **$1.32 de $5**.
+---
+
+# FINAL PLATFORM COMPARISON
+
+| | X | Instagram | Facebook | TikTok |
+|---|---|---|---|---|
+| Unit cost | $0.00025 | $0.0026 | $0.0025 | $0.0037 |
+| Sample | 400 | 112 | 100 | 100 |
+| Actionable | 39 (9.8%) | 38 (34%) | 37 (37%) | 9 (9%) |
+| Cost per actionable | **$0.0026** | $0.0077 | $0.0070 | $0.041 |
+| Structured geo | 1.5% (`place`) | 34% (`locationName`) | none | 19%, finest granularity |
+| Demand axis | yes | almost none | **yes, the best** | yes, highest quality |
+| Supply axis | yes | **yes, the best** | yes | yes |
+| Rural long tail | no | no | **yes** | partially |
+| Payment details | rare | sometimes | **frequent** | sometimes |
+| Native date filter | yes | **no** | yes | yes |
+| Free image/audio text | no | no | **alt-text, 100% of media** | **subtitles, 70%** |
+
+**X** is the cheapest per actionable item and the only one with good time and volume
+filtering: use it for broad sweeps and for the urban demand axis.
+**Instagram** is the commercial collection-point directory, with structured geo.
+**Facebook** is the one that finds who nobody is looking at. Most valuable for the mission
+even though it is not the cheapest.
+**TikTok** is a precision instrument for ground zero, not a sweeping tool.
+
+Total pilot spend: **$1.32 of $5**.

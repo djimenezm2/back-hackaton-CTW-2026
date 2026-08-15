@@ -1,403 +1,399 @@
-# Frontera de Búsqueda
+# Search Frontier
 
-**Manual operativo** — cómo un agente autónomo encuentra, acota y persigue información
-accionable durante un desastre, sin recorrer indiscriminadamente toda la red.
+**Operating handbook** — how an autonomous agent finds, scopes and pursues actionable
+information during a disaster, without indiscriminately crawling the entire network.
 
-> Validado sobre el terremoto de Chocó (M7.4, 10 de agosto de 2026).
-> 712 publicaciones en X, Instagram, Facebook y TikTok, más 227 comentarios, por $1.32 de
-> crédito Apify. Hackathon CTW 2026 · v1 · 15 de agosto de 2026.
-
----
-
-## La premisa: no puedes barrer todo
-
-Toda la arquitectura existe para resolver una sola tensión: quieres cobertura hasta la vereda
-más pequeña, pero el barrido exhaustivo cuesta más de lo que vale.
-
-Colombia tiene más de 1.100 municipios. Un barrido nacional completo — cada municipio, cuatro
-plataformas, 40 publicaciones cada uno — son unas 176.000 publicaciones por pasada. A precios
-reales de Apify eso ronda los **$400 por pasada**. Cada 30 minutos, 48 pasadas al día:
-**~$19.000 al día**. Insostenible, y además desperdiciado: el 95% de esos municipios no tiene
-nada que decir sobre el evento.
-
-Los tokens de LLM sí son baratos y ahí puedes ser generoso. Los créditos de scraping no. La
-frontera priorizada no es una optimización elegante: es lo que hace la diferencia entre $150 y
-$19.000 al día.
-
-> **Principio rector.** La detección es barata y global. La cosecha es cara y focalizada.
-> Nunca dejes que la cosecha haga el trabajo de la detección.
+> Validated against the Chocó earthquake (M7.4, 10 August 2026).
+> 712 posts across X, Instagram, Facebook and TikTok, plus 227 comments, for $1.32 of Apify
+> credit. Hackathon CTW 2026 · v1 · 15 August 2026.
 
 ---
 
-## Etapa 01 — Vigilancia global
+## The premise: you cannot sweep everything
 
-*Cada 30 minutos, sobre feeds oficiales. Coste: cero.*
+The whole architecture exists to resolve one tension: you want coverage down to the smallest
+rural district, but an exhaustive sweep costs more than it is worth.
 
-El job de vigilancia **no scrapea redes sociales**. Redes es donde vas después de saber que algo
-pasó. Para enterarte existen feeds sismológicos y humanitarios públicos, estructurados y
-gratuitos, que ya te dan magnitud, coordenadas, profundidad y una estimación de severidad.
+Colombia has more than 1,100 municipalities. A full national sweep — every municipality, four
+platforms, 40 posts each — is roughly 176,000 posts per pass. At real Apify prices that is
+about **$400 per pass**. Every 30 minutes, 48 passes a day: **~$19,000 a day**. Unsustainable,
+and wasted on top of that: 95% of those municipalities have nothing to say about the event.
 
-| Fuente | Cobertura | Por qué |
+LLM tokens are cheap and you can be generous there. Scraping credits are not. The prioritized
+frontier is not an elegant optimization — it is the difference between $150 and $19,000 a day.
+
+> **Governing principle.** Detection is cheap and global. Harvesting is expensive and
+> focused. Never let harvesting do detection's job.
+
+---
+
+## Stage 01 — Global watch
+
+*Every 30 minutes, over official feeds. Cost: zero.*
+
+The watch job **does not scrape social media**. Social is where you go *after* you know
+something happened. To find out, there are public, structured, free seismic and humanitarian
+feeds that already give you magnitude, coordinates, depth and a severity estimate.
+
+| Source | Coverage | Why |
 |---|---|---|
-| `GDACS` | Multi-amenaza | Sismos, ciclones, inundaciones, volcanes. Ya trae score de alerta verde/naranja/rojo. La mejor fuente única de arranque. |
-| `USGS FDSN` | Sismos global | Catálogo canónico, sin API key, consultable por magnitud y ventana temporal. |
-| `EMSC` | Sismos global | Tiene WebSocket en tiempo real: te empuja el evento en vez de que lo consultes. |
-| `ReliefWeb` | Humanitaria | Reportes de agencias. Más lento, pero valida severidad y da nombres de organizaciones respondiendo. |
-| Servicio nacional | País | SGC y UNGRD en Colombia. Siempre más preciso y más rápido que las fuentes globales para su territorio. |
+| `GDACS` | Multi-hazard | Earthquakes, cyclones, floods, volcanoes. Already carries a green/orange/red alert score. The best single starting source. |
+| `USGS FDSN` | Global seismic | Canonical catalog, no API key, queryable by magnitude and time window. |
+| `EMSC` | Global seismic | Has a real-time WebSocket: it pushes the event instead of you polling for it. |
+| `ReliefWeb` | Humanitarian | Agency reports. Slower, but validates severity and names the organizations responding. |
+| National service | Country | SGC and UNGRD in Colombia. Always more precise and faster than global sources for their own territory. |
 
-El umbral de disparo es tuyo. Magnitud sola no basta: un M7.4 a 600 km de profundidad bajo el
-océano no hace daño, y un M5.8 superficial bajo una ciudad sí. Dispara con una combinación de
-**magnitud, profundidad y población en el radio de sacudida** — o delega en el nivel de alerta
-de GDACS, que ya modela eso.
+The trigger threshold is yours to set. Magnitude alone is not enough: an M7.4 at 600 km depth
+under the ocean does no harm, and a shallow M5.8 under a city does. Trigger on a combination
+of **magnitude, depth and population within the shaking radius** — or delegate to GDACS's
+alert level, which already models that.
 
-### La vigilancia no se apaga al detectar
+### The watch does not switch off on detection
 
-Los desastres se encadenan. Cuatro días después del terremoto, Quibdó — ya golpeada — se inundó
-por lluvias nocturnas, y hubo un vendaval en Casacará (Agustín Codazzi, Cesar). Lo detectó
-TikTok, no los feeds sísmicos. Una zona ya afectada que recibe un segundo golpe cambia por
-completo su prioridad: la vigilancia sigue corriendo sobre el evento activo y puede reescribir
-los anillos a mitad de operación.
+Disasters cascade. Four days after the earthquake, Quibdó — already hit — flooded from
+overnight rain, and there was a windstorm in Casacará (Agustín Codazzi, Cesar). TikTok caught
+it, not the seismic feeds. An already-affected area taking a second hit changes its priority
+completely, so the watch keeps running against the active event and can rewrite the rings
+mid-operation.
 
-> ⚠️ **Verificar antes de cablear.** Los cuatro sondeos de scraping de este manual están medidos
-> con datos reales. Estos feeds de detección van por conocimiento previo: confirma endpoints,
-> formatos y límites de cuota antes de construir sobre ellos.
+> ⚠️ **Verify before wiring.** The four scraping probes in this handbook are measured against
+> real data. These detection feeds are prior knowledge: confirm endpoints, formats and quota
+> limits before building on them.
 
 ---
 
-## Etapa 02 — Anclaje de verdad
+## Stage 02 — Ground truth anchoring
 
-*Se dispara una vez por evento. Construye el vocabulario de todo lo demás.*
+*Fires once per event. Builds the vocabulary everything else depends on.*
 
-Antes de tocar redes sociales, el agente arma un **Registro de Evento**: hora exacta, epicentro
-en coordenadas, profundidad, magnitud, y — lo más importante — la **lista oficial de unidades
-administrativas afectadas**.
+Before touching social media, the agent assembles an **Event Record**: exact time, epicenter
+coordinates, depth, magnitude, and — most importantly — the **official list of affected
+administrative units**.
 
-Esto no es burocracia. Es el vocabulario de búsqueda. Sin los nombres propios reales de
-municipios, veredas y corregimientos, tus queries no tienen dónde anclarse y traen basura. En el
-piloto el ground truth salió de prensa y fuentes primarias en minutos y sin coste, y produjo la
-lista que hizo funcionar todo lo demás: Pereira, Quimbaya, Quibdó, Cali, Manizales,
+This is not bureaucracy. It is the search vocabulary. Without the real proper names of
+municipalities and rural districts, queries have nothing to anchor to and return garbage. In
+the pilot, ground truth came from press and primary sources in minutes at zero cost, and
+produced the list that made everything else work: Pereira, Quimbaya, Quibdó, Cali, Manizales,
 Buenaventura, San José del Palmar, Calima-El Darién.
 
-### Qué guarda el registro
+### What the record holds
 
-- **Núcleo físico** — epicentro, hora, magnitud, profundidad, réplicas.
-- **Unidades afectadas** — códigos administrativos oficiales, no cadenas de texto. En Colombia,
-  DIVIPOLA del DANE.
-- **Infraestructura caída** — aeropuertos, vías, hospitales. Las vías cerradas predicen dónde
-  habrá comunidades incomunicadas.
-- **Léxico del evento** — cómo lo llama la gente. Hashtags, apodos, el nombre del edificio que
-  colapsó.
-- **Respondedores oficiales** — cuentas de alcaldías, defensa civil, cruz roja. Semillas de alta
-  credibilidad para la frontera.
+- **Physical core** — epicenter, time, magnitude, depth, aftershocks.
+- **Affected units** — official administrative codes, not text strings. In Colombia, DANE's
+  DIVIPOLA.
+- **Downed infrastructure** — airports, roads, hospitals. Closed roads predict where cut-off
+  communities will be.
+- **Event lexicon** — what people call it. Hashtags, nicknames, the name of the building that
+  collapsed.
+- **Official responders** — accounts for city halls, civil defense, red cross. High-credibility
+  seeds for the frontier.
 
 ---
 
-## Etapa 03 — Alcance geográfico
+## Stage 03 — Geographic scoping
 
-*Dos zonas, no una. El error más caro es tratar el país como un solo territorio.*
+*Two zones, not one. The most expensive mistake is treating the country as a single territory.*
 
-Un municipio no afectado no es ruido. Barranquilla no sufrió el terremoto y aun así apareció
-organizando un camión de donaciones hacia Pereira. Fusagasugá mandó insumos médicos a Quibdó.
-Soacha «apadrinó» a Vijes. Las ciudades intactas son **nodos de oferta**, y hay que buscarlas —
-con otras queries.
+An unaffected municipality is not noise. Barranquilla did not suffer the earthquake, and it
+still showed up organizing a truckload of donations for Pereira. Fusagasugá sent medical
+supplies to Quibdó. Soacha "adopted" Vijes. Intact cities are **supply nodes**, and you have
+to search them — with different queries.
 
-| | **Zona de impacto** → eje demanda | **Zona de soporte** → eje oferta |
+| | **Impact zone** → demand axis | **Support zone** → supply axis |
 |---|---|---|
-| **Qué contiene** | Municipios en la lista oficial de afectados, más los anillos de distancia al epicentro | El resto del país, priorizando centros urbanos y municipios vecinos con acceso vial |
-| **Qué se busca** | Necesidades sin cubrir · comunidades incomunicadas · albergues desbordados · personas desaparecidas · faltantes concretos (agua, medicinas, carpas) | Puntos de acopio con dirección y horario · vehículos y logística ofrecidos · campañas de recaudo y cuentas · voluntarios y brigadas · empresas donando en especie |
+| **What it holds** | Municipalities on the official affected list, plus the distance rings around the epicenter | The rest of the country, prioritizing urban centers and neighboring municipalities with road access |
+| **What to search for** | Unmet needs · cut-off communities · overwhelmed shelters · missing persons · concrete shortages (water, medicine, tents) | Collection points with address and hours · vehicles and logistics offered · fundraising campaigns and accounts · volunteers and brigades · companies donating in kind |
 
-La expansión geográfica se hace sobre la división administrativa oficial del país, no sobre lo
-que el modelo recuerde. Cargas el catálogo completo de municipios una vez, y el agente itera
-sobre entidades reales con código, coordenadas y jerarquía
-*departamento → municipio → corregimiento → vereda*. Así llegas a la cola larga sin alucinar
-topónimos.
+Geographic expansion runs over the country's official administrative division, not over what
+the model happens to remember. You load the full municipality catalog once, and the agent
+iterates real entities with codes, coordinates and a *department → municipality → settlement*
+hierarchy. That is how you reach the long tail without hallucinating place names.
 
-> **Anillos, no lista plana.** Ordena los municipios de la zona de impacto por distancia al
-> epicentro y cruza con densidad de población. Eso te da los anillos de cadencia de la etapa 06,
-> y además predice dónde *debería* haber señal aunque todavía no la hayas visto — que es
-> exactamente donde vale la pena gastar exploración.
+> **Rings, not a flat list.** Order impact-zone municipalities by distance to the epicenter
+> and cross that with population density. That gives you the cadence rings in stage 06, and it
+> also predicts where signal *should* exist even where you have not looked yet — which is
+> exactly where exploration is worth spending.
 
 ---
 
-## Etapa 04 — Síntesis de queries
+## Stage 04 — Query synthesis
 
-*Una query por combinación de plataforma × zona × eje. Nunca una query genérica.*
+*One query per platform × zone × axis combination. Never a generic query.*
 
-### Regla del anclaje toponímico
+### The toponym anchoring rule
 
-**Toda query lleva un topónimo colombiano.** Es la regla que más impacto tuvo en el piloto. Sin
-anclaje, las búsquedas se contaminaron con los terremotos de Venezuela, Perú, Indonesia, Ecuador
-y Granada; hasta un negocio de Perú apareció por decir «punto de acopio». La geografía no es un
-filtro que aplicas después: es parte de la query.
+**Every query carries a Colombian place name.** This was the highest-impact rule in the pilot.
+Without anchoring, searches were contaminated by earthquakes in Venezuela, Peru, Indonesia,
+Ecuador and Granada; even a Peruvian business surfaced for saying "punto de acopio". Geography
+is not a filter you apply afterward: it is part of the query.
 
-**Eje demanda, zona de impacto**
+**Demand axis, impact zone**
 
 ```
-// (síntoma) × (topónimo) × (ventana) × (idioma)
+// (symptom) × (toponym) × (window) × (language)
 ("no ha llegado ayuda" OR "estamos incomunicados" OR damnificados)
 AND (Pereira OR Quimbaya OR Quibdó OR "San José del Palmar")
 AND lang:es
 AND since:2026-08-10_12:00:00_UTC until:2026-08-16_00:00:00_UTC
 ```
 
-**Eje oferta, zona de soporte**
+**Supply axis, support zone**
 
 ```
-// (recurso) × (topónimo no afectado) × (ventana)
+// (resource) × (unaffected toponym) × (window)
 ("punto de acopio" OR "recibimos donaciones" OR "sale un camión")
 AND (Bogotá OR Medellín OR Barranquilla OR Bucaramanga)
 AND (terremoto OR sismo OR damnificados)
 AND lang:es
 ```
 
-**Cola larga rural, solo Facebook**
+**Rural long tail, Facebook only**
 
 ```
-// vocabulario administrativo rural, sin topónimo específico:
-// es el propio término el que ancla en Colombia
+// rural administrative vocabulary, no specific toponym:
+// the terms themselves anchor the search to Colombia
 vereda corregimiento resguardo incomunicada sismo ayuda humanitaria
 ```
 
-### Qué funcionó y qué no
+### What worked and what did not
 
-| Patrón | Veredicto | Por qué |
+| Pattern | Verdict | Why |
 |---|---|---|
-| `"punto de acopio"` + municipio | **Excelente** | Dirección, horario y qué se recibe, casi siempre en el mismo post. |
-| `vereda / corregimiento / resguardo` | **Excelente** | La única que llegó a la cola larga rural. Encontró Herveo y el resguardo Wounaan. |
-| `damnificados` + municipio | Bueno | Mezcla prensa con testimonios directos, pero los directos traen ubicación fina. |
-| `albergue / mercados / carpas` | Bueno | Buen puente entre los dos ejes: quien menciona faltantes suele estar en el terreno. |
-| `"estamos incomunicados"` sin municipio | Malo | Contaminación masiva con otros países. Sin anclaje no sirve. |
-| `"tengo camioneta"`, `"presto mi"` | Inservible | Falsos positivos casi puros. La gente usa esas frases para presumir, no para ofrecer. |
-| Hashtags del evento | Flojo | Alcance mediático y político. Volumen alto, accionabilidad baja. |
+| `"punto de acopio"` + municipality | **Excellent** | Address, hours and accepted goods, usually in the same post. |
+| `vereda / corregimiento / resguardo` | **Excellent** | The only one that reached the rural long tail. Found Herveo and the Wounaan reserve. |
+| `damnificados` + municipality | Good | Mixes press with first-hand accounts, but the first-hand ones carry fine-grained locations. |
+| `albergue / mercados / carpas` | Good | A useful bridge between the two axes: whoever mentions shortages is usually on the ground. |
+| `"estamos incomunicados"` with no municipality | Bad | Massive contamination from other countries. Useless without anchoring. |
+| `"tengo camioneta"`, `"presto mi"` | Useless | Near-pure false positives. People use those phrases to boast, not to offer. |
+| Event hashtags | Weak | Media and political reach. High volume, low actionability. |
 
-La lección sobre el eje de recursos propios es la más útil: **no busques la capacidad, busca la
-convocatoria**. Quien presta su camión lo anuncia diciendo «sale un camión mañana hacia Pereira»,
-no «tengo camioneta».
+The lesson about the own-resources axis is the most useful one: **do not search for the
+capacity, search for the call to action**. Someone lending their truck announces it as
+"a truck leaves tomorrow for Pereira", not "I have a truck".
 
 ---
 
-## Etapa 05 — Cosecha y estructuración
+## Stage 05 — Harvest and structuring
 
-*Cuatro plataformas, cuatro papeles distintos. No son intercambiables.*
+*Four platforms, four distinct roles. They are not interchangeable.*
 
-| Plataforma | Muestra | Accionables | $ / accionable | Geo | Papel |
+| Platform | Sample | Actionable | $ / actionable | Geo | Role |
 |---|---:|---:|---:|---:|---|
-| X | 400 | 39 · 9.8% | **$0.0026** | 1.5% | Barrido amplio y barato. Demanda urbana. |
-| Instagram | 112 | 38 · 34% | $0.0077 | **34% ciudad** | Directorio de acopio comercial. Geo estructurado. |
-| Facebook | 100 | **37 · 37%** | $0.0070 | — | Cola larga rural. Datos de pago. Demanda real. |
-| TikTok | 100 | 9 · 9% | $0.041 | 19% vereda | Precisión en zona cero. Coordinadores de a pie. |
-| Comentarios | 227 | ~6% | — | — | Descubrimiento, no cosecha. |
+| X | 400 | 39 · 9.8% | **$0.0026** | 1.5% | Cheap broad sweep. Urban demand. |
+| Instagram | 112 | 38 · 34% | $0.0077 | **34% city** | Commercial collection-point directory. Structured geo. |
+| Facebook | 100 | **37 · 37%** | $0.0070 | — | Rural long tail. Payment details. Real demand. |
+| TikTok | 100 | 9 · 9% | $0.041 | 19% district | Precision in ground zero. On-foot coordinators. |
+| Comments | 227 | ~6% | — | — | Discovery, not harvest. |
 
-**Actors usados**
+**Actors used**
 
-| Plataforma | Actor | Precio |
+| Platform | Actor | Price |
 |---|---|---|
 | X | `kaitoeasyapi/twitter-x-data-tweet-scraper-pay-per-result-cheapest` | $0.00025 / tweet |
 | Instagram | `apify/instagram-hashtag-scraper` | $0.0026 / post |
 | Facebook | `scraper_one/facebook-posts-search` | $0.0025 / post |
 | TikTok | `clockworks/tiktok-scraper` | $0.0037 / video |
-| Comentarios | `clockworks/tiktok-comments-scraper` | $0.00125 / comentario |
+| Comments | `clockworks/tiktok-comments-scraper` | $0.00125 / comment |
 
-**X** es el más barato por item útil y el único con buen control de volumen y ventana temporal:
-úsalo para barrer. **Instagram** es casi exclusivamente oferta — comercios y fundaciones
-anunciando acopio — pero trae ubicación estructurada a nivel de ciudad. **Facebook** es el que
-encuentra a quien nadie está mirando: los municipios pequeños que no salen en prensa, y con
-frecuencia trae cuentas bancarias y direcciones completas.
+**X** is the cheapest per useful item and the only one with solid volume and time-window
+control: use it to sweep. **Instagram** is almost purely supply — shops and nonprofits
+announcing collection points — but it carries structured location at city level. **Facebook**
+is the one that finds who nobody else is looking at: the small municipalities that never make
+the press, and it frequently carries bank accounts and full addresses.
 
-### TikTok: caro para barrer, insustituible en zona cero
+### TikTok: expensive to sweep with, irreplaceable at ground zero
 
-16 veces más caro por item útil, así que no sirve para barrer — pero su geolocalización llega a
-vereda y barrio, no a ciudad, y sus autores son coordinadores de a pie. Es la única plataforma
-que produjo inteligencia operativa de este tipo:
+16× more expensive per useful item, so it is no good for sweeping — but its geolocation
+reaches rural districts and neighborhoods rather than cities, and its authors are on-foot
+coordinators. It is the only platform that produced operational intelligence of this kind:
 
-> *«Se necesita ayuda en esta zona. En Cuba, Pereira. Persona encargada 300 2377012 Janeth
-> (deben subir por Villa Ligia porque si suben por Leningrado hay gente no damnificada
-> aprovechándose y quedándose con las cosas)»*
+> *"Help is needed in this area. In Cuba, Pereira. Person in charge 300 2377012 Janeth (you
+> have to come up through Villa Ligia, because if you come up through Leningrado there are
+> people who are not victims taking advantage and keeping the goods)"*
 
-Dónde está la necesidad, quién la coordina, su teléfono, y por qué ruta entrar para que la ayuda
-no se desvíe. Ninguna fuente oficial publica lo último.
+Where the need is, who coordinates it, their phone, and which route to take so the aid is not
+diverted. No official source publishes that last part.
 
-Úsalo como **instrumento de precisión sobre el anillo T0**: pocas consultas, alta frecuencia,
-solo zona de impacto. Ahí su granularidad justifica el precio.
+Use it as a **precision instrument on ring T0**: few queries, high frequency, impact zone
+only. There its granularity justifies the price.
 
-### Los comentarios son capa de descubrimiento, no de cosecha
+### Comments are a discovery layer, not a harvest layer
 
-Minar comentarios da mala densidad — de 227 analizados, cero teléfonos y solo 5 con ubicación
-fina. Como fuente de items estructurados no compite con Facebook. Pero contienen algo que
-ninguna otra capa tiene:
+Mining comments yields poor density — of 227 analyzed, zero phone numbers and only five with
+fine-grained locations. As a source of structured items it does not compete with Facebook. But
+it holds something no other layer does:
 
-| **Demanda sin atender** | **Oferta bloqueada** |
+| **Unmet demand** | **Blocked supply** |
 |---|---|
-| «hola tengo niños y los alimentos escasearon dónde puedo ir» | «¿siguen necesitando voluntarios en el Coliseo Mayor???» |
-| «¿para las personas que necesitan comida dónde se puede ir?» | «¿necesitan personas para apoyo en logística?» |
-| «vayan para la zona norte de Quibdó, barrio La Victoria» | «vamos a llevar hidratación hoy, comunicarse al interno» |
+| "hi I have children and food ran out where can I go" | "do they still need volunteers at the Coliseo Mayor???" |
+| "for people who need food where can they go?" | "do they need people for logistics support?" |
+| "go to the north side of Quibdó, La Victoria neighborhood" | "we're bringing drinks today, DM me" |
 
-Los comentarios son donde vive la **demanda insatisfecha de información**: gente que necesita
-ayuda y no sabe a dónde ir, gente que quiere ayudar y no sabe dónde. Son los usuarios del
-producto escribiendo su necesidad en texto plano. Y los locales nombran barrios desatendidos que
-ninguna otra capa reportó. Úsalos para **alimentar la frontera con topónimos nuevos**, no para
-llenar la base de datos.
+Comments are where **unmet demand for information** lives: people who need help and do not
+know where to go, people who want to help and do not know where. They are the product's users
+writing their need in plain text. And locals name underserved neighborhoods that no other
+layer reported. Use them to **feed the frontier new toponyms**, not to fill the database.
 
-Detalle operativo: el contacto casi siempre migra a mensaje directo («comunicarse al interno»).
-El teléfono rara vez queda en el comentario público.
+One operational detail: contact almost always moves to a direct message ("DM me"). The phone
+number rarely stays in the public comment.
 
-### Extracción por item
+### Per-item extraction
 
-| Campo | Fuente | Nota |
+| Field | Source | Note |
 |---|---|---|
-| `eje` | Clasificador | demanda · oferta · informativo · **descarte** |
-| `categoria` | Clasificador | agua, comida, medicina, techo, transporte, rescate, animales, salud mental |
-| `ubicacion` | NER + geocoding | Casi siempre en el texto libre, no en metadatos |
-| `contacto` | Regex | Teléfono, Nequi, Bancolombia, llave Bre-B, dirección |
-| `ventana` | Extracción | «hasta el 16 de agosto», «sale mañana» — caduca el item |
-| `estado` | Derivado | activo · cumplido · caducado · no verificado |
+| `axis` | Classifier | demand · supply · informational · **discard** |
+| `category` | Classifier | water, food, medicine, shelter, transport, rescue, animals, mental health |
+| `location` | NER + geocoding | Almost always in free text, not in metadata |
+| `contact` | Regex | Phone, Nequi, Bancolombia, Bre-B key, address |
+| `window` | Extraction | "until 16 August", "leaving tomorrow" — expires the item |
+| `status` | Derived | active · fulfilled · expired · unverified |
 
-> ⚠️ **Clase de descarte obligatoria.** Buena parte del volumen es discusión política sobre el
-> manejo gubernamental de las ayudas. Sin una clase explícita de descarte para eso, inunda la
-> frontera: alto engagement, cero accionabilidad, y el scoring la premia por error.
+> ⚠️ **A discard class is mandatory.** A large share of the volume is political argument about
+> the government's handling of aid. Without an explicit discard class for it, the frontier
+> floods: high engagement, zero actionability, and the scoring rewards it by mistake.
 
-La geolocalización es el trabajo difícil y hay que asumirlo desde el diseño. Solo el 1.5% de los
-tweets trae campo de ubicación. La ubicación útil casi siempre está en el texto — *«sector Gamma
-y La Villa, por el estadio»*, *«Cra 5 norte con calle 34»* — y hay que extraerla con NER y
-geocodificarla contra el catálogo administrativo.
+Geolocation is the hard work and must be planned for. Only 1.5% of tweets carry a location
+field. The useful location almost always sits in the text — *"Gamma and La Villa sector, by
+the stadium"*, *"Cra 5 norte con calle 34"* — and has to be extracted with NER and geocoded
+against the administrative catalog.
 
 ---
 
-## Etapa 06 — La frontera
+## Stage 06 — The frontier
 
-*Dónde volver a gastar, cada cuánto, y cuándo dejar de gastar.*
+*Where to spend again, how often, and when to stop spending.*
 
-Cada fuente descubierta — una cuenta, un hashtag, un municipio, una query — entra a la frontera
-con una puntuación que se actualiza en cada cosecha. La puntuación decide la cadencia.
+Every discovered source — an account, a hashtag, a municipality, a query — enters the frontier
+with a score that updates on every harvest. The score determines the cadence.
 
 ```
-score = (rendimiento × credibilidad × proximidad × frescura) ÷ coste
+score = (yield × credibility × proximity × freshness) ÷ cost
 ```
 
-| Factor | Definición |
+| Factor | Definition |
 |---|---|
-| `rendimiento` | Items accionables por cada 100 recolectados en las últimas N pasadas. |
-| `credibilidad` | Alta para alcaldías, defensa civil y medios locales; media para cuentas con historial verificado; baja para cuentas nuevas o sin historial. |
-| `proximidad` | Distancia al epicentro, o pertenencia a la lista oficial de afectados. |
-| `frescura` | Decaimiento desde la última publicación útil. Una fuente que lleva 6 horas callada baja sola. |
-| `coste` | Precio real por pasada en esa plataforma. **Sin este divisor, el agente quema el presupuesto en las fuentes caras.** |
+| `yield` | Actionable items per 100 collected over the last N passes. |
+| `credibility` | High for city halls, civil defense and local media; medium for accounts with verified history; low for new or history-less accounts. |
+| `proximity` | Distance to the epicenter, or membership in the official affected list. |
+| `freshness` | Decay since the last useful post. A source quiet for six hours falls on its own. |
+| `cost` | Real price per pass on that platform. **Without this divisor the agent burns the budget on expensive sources.** |
 
-### Cadencia por anillos
+### Cadence by ring
 
-| Anillo | Qué contiene | Municipios | Cadencia | $/día (X) |
+| Ring | Contents | Municipalities | Cadence | $/day (X) |
 |---|---|---:|---:|---:|
-| T0 | Epicentro y municipios críticos | ~20 | 15 min | ~$19 |
-| T1 | Departamentos afectados | ~100 | 1 h | ~$24 |
-| T2 | Nodos de oferta urbanos | ~30 | 3 h | ~$2 |
-| T3 | Cola larga nacional | ~950 | 24 h | ~$5 |
+| T0 | Epicenter and critical municipalities | ~20 | 15 min | ~$19 |
+| T1 | Affected departments | ~100 | 1 h | ~$24 |
+| T2 | Urban supply nodes | ~30 | 3 h | ~$2 |
+| T3 | National long tail | ~950 | 24 h | ~$5 |
 
-Unos **$50 al día en X** para el evento vivo, contra los ~$19.000 del barrido ciego. La mezcla de
-plataformas sigue el mismo criterio de coste-beneficio: Facebook sobre T1 y T3 por la cola larga
-rural, Instagram sobre T2 por el directorio de acopio, TikTok solo sobre T0 donde su precio se
-justifica. Un evento activo se sostiene en el orden de **$100–150 diarios**.
+About **$50 a day on X** for the live event, against roughly $19,000 for the blind sweep. The
+platform mix follows the same cost-benefit rule: Facebook over T1 and T3 for the rural long
+tail, Instagram over T2 for the collection-point directory, TikTok only over T0 where its
+price is justified. An active event sustains at around **$100–150 a day**.
 
-### Dos reglas que evitan que la frontera se cierre
+### Two rules that keep the frontier from closing
 
-- **Exploración forzada.** Reserva un porcentaje fijo del presupuesto — 10% funciona — para
-  fuentes sin historial. Sin esto el agente se encierra en lo que ya conoce y nunca encuentra la
-  vereda de la que nadie hablaba hace 20 minutos, que es precisamente el caso de mayor valor.
-- **Deduplicación contra lo visto, no contra lo aceptado.** Guarda todo lo que ya evaluaste,
-  incluido lo que descartaste. Si deduplicas solo contra lo confirmado, lo rechazado reaparece en
-  cada ronda y el bucle nunca converge.
-
----
-
-## Desambiguación de eventos
-
-*Cómo el agente no mezcla dos terremotos.*
-
-Durante el piloto había al menos cuatro eventos sísmicos compitiendo en el mismo espacio de
-búsqueda en español: Colombia, Venezuela, Indonesia y Granada, más un histórico de Perú. El 5% de
-la muestra llegó contaminado. Tres defensas, en orden de eficacia:
-
-1. **Anclaje toponímico en la query.** Barato y resuelve la mayoría. El topónimo va dentro de la
-   búsqueda, no en el filtro posterior.
-2. **Ventana temporal estricta.** Acotada a la hora exacta del evento en el registro. Elimina el
-   histórico y la mayoría de los aniversarios.
-3. **Verificación contra el registro de evento.** Para lo que sobrevive: el item debe ser
-   consistente con magnitud, fecha y geografía del evento activo. Es la única que atrapa la
-   mención cruzada — un post colombiano hablando del sismo de Venezuela.
-
-Si corres varios eventos a la vez, cada uno tiene su propio registro, su propia frontera y su
-propio presupuesto. No comparten estado más allá del catálogo geográfico.
+- **Forced exploration.** Reserve a fixed share of the budget — 10% works — for sources with
+  no history. Without this the agent locks onto what it already knows and never finds the
+  rural district nobody was posting about twenty minutes ago, which is precisely the
+  highest-value case.
+- **Deduplicate against what you have seen, not against what you accepted.** Store everything
+  already evaluated, including what you discarded. If you deduplicate only against confirmed
+  items, rejected ones reappear every round and the loop never converges.
 
 ---
 
-## Modos de fallo
+## Event disambiguation
 
-*Lo que va a romperse, en orden de probabilidad.*
+*How the agent avoids conflating two earthquakes.*
 
-1. **Información caducada presentada como viva.** El fallo más dañino, porque desvía recursos
-   reales. Un punto de acopio que ya cerró es peor que ningún dato. Todo item necesita ventana de
-   validez y estado; sin eso, el producto miente con confianza.
-2. **Geolocalización silenciosamente incorrecta.** «La Villa» existe en varios municipios. Cuando
-   el geocoding no es concluyente, marca el item como ubicación aproximada en vez de inventar
-   coordenadas.
-3. **Colapso de la frontera.** Sin exploración forzada, el agente converge a media docena de
-   cuentas de alto engagement y deja de descubrir. Se detecta porque la tasa de fuentes nuevas por
-   hora cae a cero.
-4. **Actor caído que reporta éxito.** El más traicionero. El scraper de TikTok más barato del
-   catálogo (`apidojo/tiktok-scraper`) devolvió `SUCCEEDED` con diez items de un solo campo
-   `noResults` — para todas las queries, incluido un control con una palabra genérica y sin
-   filtros. Un run así *parece* «no hay señal en esa zona» y el scoring castiga a un municipio que
-   sí tenía señal. Diagnostícalo con una **query de control** periódica cuyo resultado conoces, y
-   ante esa firma haz failover a otro Actor de la misma plataforma. Ten siempre un suplente
-   identificado.
-5. **Deriva del esquema de entrada.** Los Actors cambian su schema sin aviso. En este mismo
-   piloto, `searchType` de Facebook rechazó un valor razonable (`"posts"`; solo acepta `top` o
-   `latest`). El agente debe leer el schema, y ante error de validación reintentar leyendo los
-   valores permitidos — no morir.
-6. **Fuga de presupuesto por reintentos.** Un Actor que falla a medias puede cobrar igual. Hay que
-   topar el gasto por evento y por pasada, con corte duro.
-7. **Amplificación de desinformación.** Una alerta falsa de personas atrapadas ya circuló en
-   Pereira durante este evento. Todo item de rescate necesita corroboración independiente antes de
-   subir de prioridad.
+During the pilot at least four seismic events competed in the same Spanish-language search
+space: Colombia, Venezuela, Indonesia and Granada, plus a historical one in Peru. 5% of the
+sample arrived contaminated. Three defenses, in order of effectiveness:
+
+1. **Toponym anchoring in the query.** Cheap, and it solves most of it. The place name goes
+   inside the search, not in a downstream filter.
+2. **Strict time window.** Bounded to the exact event time in the record. Eliminates history
+   and most anniversaries.
+3. **Verification against the event record.** For whatever survives: the item must be
+   consistent with the active event's magnitude, date and geography. This is the only one that
+   catches cross-mentions — a Colombian post discussing the Venezuelan quake.
+
+If you run several events at once, each gets its own record, its own frontier and its own
+budget. They share no state beyond the geographic catalog.
 
 ---
 
-## Ciclo completo
+## Failure modes
+
+*What will break, in order of likelihood.*
+
+1. **Expired information presented as live.** The most damaging failure, because it diverts
+   real resources. A collection point that already closed is worse than no data. Every item
+   needs a validity window and a status; without that, the product lies with confidence.
+2. **Silently wrong geolocation.** "La Villa" exists in several municipalities. When geocoding
+   is inconclusive, mark the item as approximate rather than inventing coordinates.
+3. **Frontier collapse.** Without forced exploration the agent converges onto half a dozen
+   high-engagement accounts and stops discovering. Detectable because the rate of newly
+   discovered sources per hour drops to zero.
+4. **A dead Actor that reports success.** The most treacherous one. The cheapest TikTok
+   scraper in the catalog (`apidojo/tiktok-scraper`) returned `SUCCEEDED` with ten items of a
+   single `noResults` field — for every query, including a control with a generic word and no
+   filters. A run like that *looks* like "no signal in that area" and the scoring penalizes a
+   municipality that did have signal. Diagnose it with a periodic **control query** whose
+   result you know, and fail over to another Actor on that signature. Always have a substitute
+   identified.
+5. **Input schema drift.** Actors change their schema without notice. In this same pilot,
+   Facebook's `searchType` rejected a reasonable value (`"posts"`; it only accepts `top` or
+   `latest`). The agent must read the schema and, on a validation error, retry after reading
+   the permitted values — not die.
+6. **Budget leakage through retries.** An Actor that half-fails can still charge. Cap spend per
+   event and per pass, with a hard cutoff.
+7. **Misinformation amplification.** A false alert about trapped people already circulated in
+   Pereira during this event. Every rescue item needs independent corroboration before it can
+   be promoted.
+
+---
+
+## The full loop
 
 ```
-cada 30 min  vigilancia global sobre feeds oficiales        $0
-             └─ ¿supera umbral de severidad?
-                   │
-una vez      ├─ anclar ground truth → Registro de Evento   $0
-una vez      ├─ resolver alcance geográfico
-             │     ├─ zona de impacto  → eje demanda
-             │     └─ zona de soporte  → eje oferta
-             │
-por anillo   └─ bucle de cosecha
-                   ├─ sintetizar queries (plataforma × zona × eje)
-                   ├─ ejecutar Actors, deduplicar contra lo visto
-                   ├─ extraer, clasificar, geocodificar
-                   ├─ emparejar oferta ↔ demanda
-                   ├─ repuntuar frontera  (90% explotar / 10% explorar)
-                   └─ reasignar cadencia por anillo
-                         │
-                         └─ ¿evento inactivo N horas? → archivar
+every 30 min  global watch over official feeds                $0
+              └─ severity threshold crossed?
+                    │
+once          ├─ anchor ground truth → Event Record          $0
+once          ├─ resolve geographic scope
+              │     ├─ impact zone   → demand axis
+              │     └─ support zone  → supply axis
+              │
+per ring      └─ harvest loop
+                    ├─ synthesize queries (platform × zone × axis)
+                    ├─ run Actors, deduplicate against everything seen
+                    ├─ extract, classify, geocode
+                    ├─ match supply ↔ demand
+                    ├─ rescore the frontier  (90% exploit / 10% explore)
+                    └─ reassign cadence per ring
+                          │
+                          └─ event quiet for N hours? → archive
 ```
 
 ---
 
-## Arquitectura de integración
+## Integration architecture
 
-**MCP para explorar, cliente directo para ejecutar.** El bucle de descubrimiento sí necesita MCP:
-`search-actors` y `fetch-actor-details` en runtime le permiten al agente usar herramientas que
-nadie codeó de antemano. Pero cuando el agente decide «esta cuenta se scrapea cada 15 minutos»,
-eso baja a una tarea determinista con `apify-client`. Un LLM en el camino crítico de un cron que
-corre 500 veces al día es caro, lento y no determinista.
+**MCP to explore, direct client to execute.** The discovery loop genuinely needs MCP:
+`search-actors` and `fetch-actor-details` at runtime let the agent use tools nobody coded in
+advance. But once the agent decides "this account gets scraped every 15 minutes", that drops
+to a deterministic task using `apify-client`. An LLM on the critical path of a cron that runs
+500 times a day is expensive, slow and non-deterministic.
 
-**Los runs de Apify son asíncronos.** `call-actor` vía MCP bloquea esperando. Con una frontera de
-200 fuentes no escala: en producción hacen falta runs lanzados con `waitSecs: 0` más webhooks.
+**Apify runs are asynchronous.** `call-actor` over MCP blocks. With a frontier of 200 sources
+that does not scale: production needs jobs launched with `waitSecs: 0` plus webhooks.
 
 ---
 
-*Cifras de plataforma, densidades y precios medidos empíricamente el 15 de agosto de 2026 sobre
-el terremoto de Chocó (M7.4, 10 de agosto): 712 publicaciones en X, Instagram, Facebook y TikTok,
-más 227 comentarios, por $1.32 de crédito Apify. Las fuentes de detección global de la etapa 01
-son recomendaciones sin verificar en esta ronda.*
+*Platform figures, densities and prices measured empirically on 15 August 2026 against the
+Chocó earthquake (M7.4, 10 August): 712 posts across X, Instagram, Facebook and TikTok, plus
+227 comments, for $1.32 of Apify credit. The global detection sources in stage 01 are
+recommendations not verified in this round.*

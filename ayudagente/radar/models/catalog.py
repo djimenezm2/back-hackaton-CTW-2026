@@ -29,16 +29,16 @@ class AdminUnit(models.Model):
     name_norm = models.CharField(max_length=120, db_index=True)  # unaccented, lowercased
     level = models.CharField(max_length=20, choices=AdminLevel.choices)
     parent = models.ForeignKey(
-        'self', null=True, blank=True, on_delete=models.PROTECT, related_name='children'
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="children"
     )
     centroid = gis.PointField(geography=True, null=True, blank=True)
     population = models.IntegerField(null=True, blank=True)
 
     class Meta:
-        indexes = [models.Index(fields=['level', 'name_norm'])]
+        indexes = [models.Index(fields=["level", "name_norm"])]
 
     def __str__(self) -> str:
-        return f'{self.name} ({self.get_level_display()})'
+        return f"{self.name} ({self.get_level_display()})"
 
 
 class ResourceType(models.Model):
@@ -57,7 +57,7 @@ class ResourceType(models.Model):
     key = models.SlugField(max_length=60, unique=True)
     name = models.CharField(max_length=120)
     parent = models.ForeignKey(
-        'self', null=True, blank=True, on_delete=models.PROTECT, related_name='children'
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="children"
     )
     default_unit = models.CharField(max_length=30, blank=True)
     perishable = models.BooleanField(default=False)
@@ -65,7 +65,7 @@ class ResourceType(models.Model):
     def __str__(self) -> str:
         return self.name
 
-    def ancestors(self) -> list['ResourceType']:
+    def ancestors(self) -> list["ResourceType"]:
         """
         Return the chain of parent categories, nearest first.
 

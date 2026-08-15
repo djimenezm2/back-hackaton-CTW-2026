@@ -36,7 +36,7 @@ class Event(models.Model):
     detection_source = models.CharField(max_length=40)  # gdacs|usgs|emsc|sgc|manual
     external_id = models.CharField(max_length=80, blank=True)
 
-    affected_units = models.ManyToManyField(AdminUnit, blank=True, related_name='events')
+    affected_units = models.ManyToManyField(AdminUnit, blank=True, related_name="events")
     lexicon = models.JSONField(default=dict)  # {hashtags: [], nicknames: [], negatives: []}
 
     status = models.CharField(
@@ -49,10 +49,10 @@ class Event(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        indexes = [models.Index(fields=['status', 'occurred_at'])]
+        indexes = [models.Index(fields=["status", "occurred_at"])]
 
     def __str__(self) -> str:
-        return f'{self.name} ({self.occurred_at:%Y-%m-%d})'
+        return f"{self.name} ({self.occurred_at:%Y-%m-%d})"
 
     @property
     def remaining_budget_usd(self):

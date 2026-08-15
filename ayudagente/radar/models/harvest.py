@@ -37,10 +37,13 @@ class HarvestJob(models.Model):
         frontier penalize a municipality that did have information.
     """
 
-    event = models.ForeignKey('radar.Event', on_delete=models.CASCADE, related_name='jobs')
+    event = models.ForeignKey("radar.Event", on_delete=models.CASCADE, related_name="jobs")
     node = models.ForeignKey(
-        'radar.FrontierNode', null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='jobs',
+        "radar.FrontierNode",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="jobs",
     )
 
     platform = models.CharField(max_length=20, choices=Platform.choices)
@@ -51,9 +54,7 @@ class HarvestJob(models.Model):
     decided_by = models.CharField(max_length=20, choices=DecisionSource.choices)
     rationale = models.TextField(blank=True)
 
-    status = models.CharField(
-        max_length=20, choices=JobStatus.choices, default=JobStatus.PENDING
-    )
+    status = models.CharField(max_length=20, choices=JobStatus.choices, default=JobStatus.PENDING)
     run_id = models.CharField(max_length=40, blank=True)
     dataset_id = models.CharField(max_length=40, blank=True)
     items_returned = models.IntegerField(default=0)
@@ -65,10 +66,10 @@ class HarvestJob(models.Model):
     finished_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        indexes = [models.Index(fields=['event', 'status', 'created_at'])]
+        indexes = [models.Index(fields=["event", "status", "created_at"])]
 
     def __str__(self) -> str:
-        return f'{self.platform} · {self.apify_actor} · {self.status}'
+        return f"{self.platform} · {self.apify_actor} · {self.status}"
 
 
 class Observation(models.Model):
@@ -93,12 +94,13 @@ class Observation(models.Model):
         `Extraction` for the interpretation, `Media` for downloaded imagery.
     """
 
-    event = models.ForeignKey(
-        'radar.Event', on_delete=models.CASCADE, related_name='observations'
-    )
+    event = models.ForeignKey("radar.Event", on_delete=models.CASCADE, related_name="observations")
     job = models.ForeignKey(
-        HarvestJob, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='observations',
+        HarvestJob,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="observations",
     )
 
     platform = models.CharField(max_length=20, choices=Platform.choices)
@@ -135,17 +137,15 @@ class Observation(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(
-                fields=['platform', 'platform_id'], name='observation_unique'
-            )
+            models.UniqueConstraint(fields=["platform", "platform_id"], name="observation_unique")
         ]
         indexes = [
-            models.Index(fields=['event', 'posted_at']),
-            models.Index(fields=['thread_id']),
+            models.Index(fields=["event", "posted_at"]),
+            models.Index(fields=["thread_id"]),
         ]
 
     def __str__(self) -> str:
-        return f'{self.platform}:{self.platform_id} @{self.author_handle}'
+        return f"{self.platform}:{self.platform_id} @{self.author_handle}"
 
 
 class Media(models.Model):
@@ -169,9 +169,7 @@ class Media(models.Model):
         cheapest defense we have against image-based misinformation.
     """
 
-    observation = models.ForeignKey(
-        Observation, on_delete=models.CASCADE, related_name='media'
-    )
+    observation = models.ForeignKey(Observation, on_delete=models.CASCADE, related_name="media")
     kind = models.CharField(max_length=20, choices=MediaKind.choices)
 
     source_url = models.URLField(max_length=1000)
@@ -187,11 +185,11 @@ class Media(models.Model):
     analysis = models.JSONField(null=True, blank=True)
 
     class Meta:
-        verbose_name_plural = 'media'
-        ordering = ['observation', 'position']
+        verbose_name_plural = "media"
+        ordering = ["observation", "position"]
 
     def __str__(self) -> str:
-        return f'{self.kind} #{self.position} of {self.observation_id}'
+        return f"{self.kind} #{self.position} of {self.observation_id}"
 
 
 class Extraction(models.Model):
@@ -213,7 +211,7 @@ class Extraction(models.Model):
     """
 
     observation = models.OneToOneField(
-        Observation, on_delete=models.CASCADE, related_name='extraction'
+        Observation, on_delete=models.CASCADE, related_name="extraction"
     )
     model = models.CharField(max_length=80)  # Azure deployment used
     prompt_version = models.CharField(max_length=20)
@@ -231,7 +229,7 @@ class Extraction(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        indexes = [models.Index(fields=['classification', 'confidence'])]
+        indexes = [models.Index(fields=["classification", "confidence"])]
 
     def __str__(self) -> str:
-        return f'{self.classification} ({self.confidence:.2f}) of {self.observation_id}'
+        return f"{self.classification} ({self.confidence:.2f}) of {self.observation_id}"

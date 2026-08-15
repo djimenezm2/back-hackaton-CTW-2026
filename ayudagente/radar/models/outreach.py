@@ -6,6 +6,8 @@ from django.conf import settings
 from django.db import models
 
 from ayudagente.radar.choices import OutreachChannel, OutreachStatus
+from ayudagente.radar.models.actors import Actor, ContactPoint
+from ayudagente.radar.models.requirements import Match
 
 
 class Outreach(models.Model):
@@ -30,14 +32,13 @@ class Outreach(models.Model):
     """
 
     match = models.ForeignKey(
-        'radar.Match', null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='outreach',
+        Match, null=True, blank=True, on_delete=models.SET_NULL, related_name="outreach"
     )
     target_actor = models.ForeignKey(
-        'radar.Actor', on_delete=models.CASCADE, related_name='received_outreach'
+        Actor, on_delete=models.CASCADE, related_name="received_outreach"
     )
     contact_point = models.ForeignKey(
-        'radar.ContactPoint', on_delete=models.PROTECT, related_name='messages'
+        ContactPoint, on_delete=models.PROTECT, related_name="messages"
     )
     channel = models.CharField(max_length=20, choices=OutreachChannel.choices)
 
@@ -50,8 +51,11 @@ class Outreach(models.Model):
     )
     automatic = models.BooleanField(default=False)
     approved_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='approved_outreach',
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="approved_outreach",
     )
     sent_at = models.DateTimeField(null=True, blank=True)
     reply_text = models.TextField(blank=True)
@@ -62,11 +66,11 @@ class Outreach(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        verbose_name_plural = 'outreach'
-        indexes = [models.Index(fields=['status', 'created_at'])]
+        verbose_name_plural = "outreach"
+        indexes = [models.Index(fields=["status", "created_at"])]
 
     def __str__(self) -> str:
-        return f'{self.channel} → {self.target_actor_id} ({self.status})'
+        return f"{self.channel} → {self.target_actor_id} ({self.status})"
 
     @staticmethod
     def build_idempotency_key(actor_id: int, match_id: int | None, channel: str) -> str:
@@ -81,4 +85,4 @@ class Outreach(models.Model):
         Returns:
             str: Hex SHA-256 digest, stable across retries of the same task.
         """
-        return hashlib.sha256(f'{actor_id}|{match_id or ""}|{channel}'.encode()).hexdigest()
+        return hashlib.sha256(f"{actor_id}|{match_id or ''}|{channel}".encode()).hexdigest()

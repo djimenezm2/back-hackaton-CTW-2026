@@ -16,9 +16,13 @@ from ayudagente.radar.choices import (
 )
 
 # Match states past which a recomputation must not touch the row: a human is already involved
-FROZEN_MATCH_STATES = frozenset({
-    MatchStatus.CONTACTED, MatchStatus.CONFIRMED, MatchStatus.DELIVERED,
-})
+FROZEN_MATCH_STATES = frozenset(
+    {
+        MatchStatus.CONTACTED,
+        MatchStatus.CONFIRMED,
+        MatchStatus.DELIVERED,
+    }
+)
 
 
 class Requirement(models.Model):
@@ -43,16 +47,12 @@ class Requirement(models.Model):
         `Match` for how two requirements get linked.
     """
 
-    event = models.ForeignKey(
-        'radar.Event', on_delete=models.CASCADE, related_name='requirements'
-    )
-    actor = models.ForeignKey(
-        'radar.Actor', on_delete=models.CASCADE, related_name='requirements'
-    )
+    event = models.ForeignKey("radar.Event", on_delete=models.CASCADE, related_name="requirements")
+    actor = models.ForeignKey("radar.Actor", on_delete=models.CASCADE, related_name="requirements")
     direction = models.CharField(max_length=10, choices=Direction.choices)
 
     resource = models.ForeignKey(
-        'radar.ResourceType', on_delete=models.PROTECT, related_name='requirements'
+        "radar.ResourceType", on_delete=models.PROTECT, related_name="requirements"
     )
     free_text = models.CharField(max_length=300, blank=True)
     quantity = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
@@ -60,39 +60,38 @@ class Requirement(models.Model):
     covered_quantity = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
     location = models.ForeignKey(
-        'radar.Location', on_delete=models.PROTECT, related_name='requirements'
+        "radar.Location", on_delete=models.PROTECT, related_name="requirements"
     )
     destination = models.ForeignKey(
-        'radar.Location', null=True, blank=True,
-        on_delete=models.PROTECT, related_name='inbound_requirements',
+        "radar.Location",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="inbound_requirements",
     )
 
     window_start = models.DateTimeField(null=True, blank=True)
     window_end = models.DateTimeField(null=True, blank=True)
-    urgency = models.CharField(
-        max_length=10, choices=Urgency.choices, default=Urgency.MEDIUM
-    )
+    urgency = models.CharField(max_length=10, choices=Urgency.choices, default=Urgency.MEDIUM)
     status = models.CharField(
         max_length=20, choices=RequirementStatus.choices, default=RequirementStatus.OPEN
     )
 
     confidence = models.FloatField(default=0.5)
-    evidence = models.ManyToManyField(
-        'radar.Observation', related_name='requirements'
-    )
+    evidence = models.ManyToManyField("radar.Observation", related_name="requirements")
 
     created_at = models.DateTimeField(auto_now_add=True)
     last_seen_at = models.DateTimeField()
 
     class Meta:
         indexes = [
-            models.Index(fields=['event', 'direction', 'resource', 'status']),
-            models.Index(fields=['window_end']),  # drives the expiry sweep
-            models.Index(fields=['status', 'urgency']),
+            models.Index(fields=["event", "direction", "resource", "status"]),
+            models.Index(fields=["window_end"]),  # drives the expiry sweep
+            models.Index(fields=["status", "urgency"]),
         ]
 
     def __str__(self) -> str:
-        return f'{self.actor.canonical_name} {self.direction} {self.resource.name}'
+        return f"{self.actor.canonical_name} {self.direction} {self.resource.name}"
 
     @property
     def outstanding_quantity(self):
@@ -126,20 +125,19 @@ class Match(models.Model):
         beyond is frozen, because by then a real person has already been written to.
     """
 
-    need = models.ForeignKey(
-        Requirement, on_delete=models.CASCADE, related_name='matches_as_need'
-    )
+    need = models.ForeignKey(Requirement, on_delete=models.CASCADE, related_name="matches_as_need")
     offer = models.ForeignKey(
-        Requirement, on_delete=models.CASCADE, related_name='matches_as_offer'
+        Requirement, on_delete=models.CASCADE, related_name="matches_as_offer"
     )
     via_transport = models.ForeignKey(
-        Requirement, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='matches_as_transport',
+        Requirement,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="matches_as_transport",
     )
 
-    committed_quantity = models.DecimalField(
-        max_digits=12, decimal_places=2, null=True, blank=True
-    )
+    committed_quantity = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     distance_km = models.FloatField(null=True, blank=True)
     score = models.FloatField()
     rationale = models.TextField(blank=True)
@@ -151,14 +149,12 @@ class Match(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        verbose_name_plural = 'matches'
-        constraints = [
-            models.UniqueConstraint(fields=['need', 'offer'], name='match_unique')
-        ]
-        indexes = [models.Index(fields=['status', '-score'])]
+        verbose_name_plural = "matches"
+        constraints = [models.UniqueConstraint(fields=["need", "offer"], name="match_unique")]
+        indexes = [models.Index(fields=["status", "-score"])]
 
     def __str__(self) -> str:
-        return f'{self.need_id} ← {self.offer_id} ({self.status})'
+        return f"{self.need_id} ← {self.offer_id} ({self.status})"
 
     @property
     def is_frozen(self) -> bool:

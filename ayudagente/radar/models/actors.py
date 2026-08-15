@@ -23,11 +23,18 @@ from ayudagente.radar.choices import (
 )
 
 # Actor kinds that count as organizations for the automatic-outreach policy
-ORGANIZATION_KINDS = frozenset({
-    ActorKind.COLLECTION_CENTER, ActorKind.NONPROFIT, ActorKind.COMPANY,
-    ActorKind.PUBLIC_ENTITY, ActorKind.MEDIA_OUTLET, ActorKind.CHURCH,
-    ActorKind.SCHOOL, ActorKind.VOLUNTEER_GROUP,
-})
+ORGANIZATION_KINDS = frozenset(
+    {
+        ActorKind.COLLECTION_CENTER,
+        ActorKind.NONPROFIT,
+        ActorKind.COMPANY,
+        ActorKind.PUBLIC_ENTITY,
+        ActorKind.MEDIA_OUTLET,
+        ActorKind.CHURCH,
+        ActorKind.SCHOOL,
+        ActorKind.VOLUNTEER_GROUP,
+    }
+)
 
 MIN_CONFIDENCE_FOR_AUTOMATIC_OUTREACH = 0.8
 
@@ -52,8 +59,11 @@ class Location(models.Model):
     raw_text = models.CharField(max_length=300)
     text_norm = models.CharField(max_length=300, db_index=True)
     admin_unit = models.ForeignKey(
-        'radar.AdminUnit', null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='locations',
+        "radar.AdminUnit",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="locations",
     )
     source = models.CharField(max_length=20, choices=GeocodeSource.choices)
     confidence = models.FloatField(default=1.0)
@@ -62,14 +72,12 @@ class Location(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(
-                fields=['text_norm', 'admin_unit'], name='location_unique'
-            )
+            models.UniqueConstraint(fields=["text_norm", "admin_unit"], name="location_unique")
         ]
-        indexes = [models.Index(fields=['precision'])]
+        indexes = [models.Index(fields=["precision"])]
 
     def __str__(self) -> str:
-        return f'{self.raw_text} [{self.precision}]'
+        return f"{self.raw_text} [{self.precision}]"
 
     def is_at_least(self, precision: str) -> bool:
         """
@@ -107,7 +115,7 @@ class Actor(models.Model):
         it. See `ContactPoint.allows_automatic_outreach`.
     """
 
-    event = models.ForeignKey('radar.Event', on_delete=models.CASCADE, related_name='actors')
+    event = models.ForeignKey("radar.Event", on_delete=models.CASCADE, related_name="actors")
     kind = models.CharField(max_length=25, choices=ActorKind.choices)
     canonical_name = models.CharField(max_length=250)
     name_norm = models.CharField(max_length=250, db_index=True)
@@ -115,7 +123,7 @@ class Actor(models.Model):
 
     embedding = VectorField(dimensions=1536, null=True, blank=True)
     location = models.ForeignKey(
-        Location, null=True, blank=True, on_delete=models.SET_NULL, related_name='actors'
+        Location, null=True, blank=True, on_delete=models.SET_NULL, related_name="actors"
     )
 
     is_organization = models.BooleanField(default=False)
@@ -129,23 +137,23 @@ class Actor(models.Model):
     first_seen_at = models.DateTimeField()
     last_seen_at = models.DateTimeField()
     merged_into = models.ForeignKey(
-        'self', null=True, blank=True, on_delete=models.SET_NULL, related_name='merged_from'
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="merged_from"
     )
 
     class Meta:
         indexes = [
-            models.Index(fields=['event', 'kind']),
+            models.Index(fields=["event", "kind"]),
             HnswIndex(
-                name='actor_embedding_hnsw',
-                fields=['embedding'],
+                name="actor_embedding_hnsw",
+                fields=["embedding"],
                 m=16,
                 ef_construction=64,
-                opclasses=['vector_cosine_ops'],
+                opclasses=["vector_cosine_ops"],
             ),
         ]
 
     def __str__(self) -> str:
-        return f'{self.canonical_name} ({self.get_kind_display()})'
+        return f"{self.canonical_name} ({self.get_kind_display()})"
 
     def save(self, *args, **kwargs):
         self.is_organization = self.kind in ORGANIZATION_KINDS
@@ -170,9 +178,9 @@ class ActorMention(models.Model):
         de Pereira"), which is what feeds trigram similarity on later passes.
     """
 
-    actor = models.ForeignKey(Actor, on_delete=models.CASCADE, related_name='mentions')
+    actor = models.ForeignKey(Actor, on_delete=models.CASCADE, related_name="mentions")
     observation = models.ForeignKey(
-        'radar.Observation', on_delete=models.CASCADE, related_name='actor_mentions'
+        "radar.Observation", on_delete=models.CASCADE, related_name="actor_mentions"
     )
     surface_form = models.CharField(max_length=250)
     role = models.CharField(max_length=20, choices=MentionRole.choices)
@@ -184,12 +192,12 @@ class ActorMention(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=['actor', 'observation', 'surface_form'], name='mention_unique'
+                fields=["actor", "observation", "surface_form"], name="mention_unique"
             )
         ]
 
     def __str__(self) -> str:
-        return f'{self.surface_form} → {self.actor_id} ({self.resolved_by})'
+        return f"{self.surface_form} → {self.actor_id} ({self.resolved_by})"
 
 
 class ContactPoint(models.Model):
@@ -214,7 +222,7 @@ class ContactPoint(models.Model):
         `allows_automatic_outreach` for the no-human-in-the-loop policy.
     """
 
-    actor = models.ForeignKey(Actor, on_delete=models.CASCADE, related_name='contact_points')
+    actor = models.ForeignKey(Actor, on_delete=models.CASCADE, related_name="contact_points")
     kind = models.CharField(max_length=25, choices=ContactKind.choices)
     platform = models.CharField(
         max_length=20, choices=Platform.choices, blank=True
@@ -223,8 +231,11 @@ class ContactPoint(models.Model):
     raw_value = models.CharField(max_length=300)
 
     discovered_in = models.ForeignKey(
-        'radar.Observation', null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='discovered_contacts',
+        "radar.Observation",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="discovered_contacts",
     )
     times_seen = models.IntegerField(default=1)
     confidence = models.FloatField(default=0.5)
@@ -242,14 +253,12 @@ class ContactPoint(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(
-                fields=['actor', 'kind', 'value'], name='contact_point_unique'
-            )
+            models.UniqueConstraint(fields=["actor", "kind", "value"], name="contact_point_unique")
         ]
-        indexes = [models.Index(fields=['kind', 'reachable'])]
+        indexes = [models.Index(fields=["kind", "reachable"])]
 
     def __str__(self) -> str:
-        return f'{self.get_kind_display()}: {self.value}'
+        return f"{self.get_kind_display()}: {self.value}"
 
     def allows_automatic_outreach(self) -> bool:
         """

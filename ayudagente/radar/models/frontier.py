@@ -27,11 +27,9 @@ class FrontierNode(models.Model):
         with the highest value.
     """
 
-    event = models.ForeignKey(
-        'radar.Event', on_delete=models.CASCADE, related_name='frontier'
-    )
+    event = models.ForeignKey("radar.Event", on_delete=models.CASCADE, related_name="frontier")
     admin_unit = models.ForeignKey(
-        'radar.AdminUnit', on_delete=models.PROTECT, related_name='frontier_nodes'
+        "radar.AdminUnit", on_delete=models.PROTECT, related_name="frontier_nodes"
     )
     platform = models.CharField(max_length=20, choices=Platform.choices)
     ring = models.CharField(max_length=4, choices=Ring.choices)
@@ -53,21 +51,19 @@ class FrontierNode(models.Model):
     actionable_items = models.IntegerField(default=0)
     total_cost_usd = models.DecimalField(max_digits=8, decimal_places=4, default=0)
 
-    status = models.CharField(
-        max_length=20, choices=NodeStatus.choices, default=NodeStatus.ACTIVE
-    )
+    status = models.CharField(max_length=20, choices=NodeStatus.choices, default=NodeStatus.ACTIVE)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=['event', 'admin_unit', 'platform'], name='frontier_node_unique'
+                fields=["event", "admin_unit", "platform"], name="frontier_node_unique"
             )
         ]
-        indexes = [models.Index(fields=['event', 'status', '-score'])]
+        indexes = [models.Index(fields=["event", "status", "-score"])]
 
     def __str__(self) -> str:
-        return f'{self.admin_unit.name} · {self.platform} · {self.ring}'
+        return f"{self.admin_unit.name} · {self.platform} · {self.ring}"
 
     @property
     def is_unexplored(self) -> bool:
