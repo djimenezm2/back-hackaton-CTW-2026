@@ -20,6 +20,8 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.gis',
+    'ayudagente.radar',
 ]
 
 MIDDLEWARE = [
@@ -53,7 +55,7 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
+        'ENGINE': 'django.contrib.gis.db.backends.postgis',
         'NAME': os.environ.get('DB_NAME', 'hackaton'),
         'USER': os.environ.get('DB_USER', 'hackaton'),
         'PASSWORD': os.environ.get('DB_PASSWORD', 'hackaton'),

@@ -4,7 +4,21 @@ version = "0.1.0"
 description = "Django + PostgreSQL backend"
 requires-python = ">=3.12"
 dependencies = [
-    "django>=5.0,<6.0",
+    "apify-client>=3.1.2",
+    "celery[redis]>=5.6.3",
+    "deepagents>=0.7.6",
+    "django-storages[azure]>=1.14.6",
+    "django[gis]>=5.0,<6.0",
+    "langchain-mcp-adapters>=0.3.2",
+    "langchain-openai>=1.5.1",
+    "langgraph>=1.2.11",
+    "networkx>=3.6.1",
+    "pgvector>=0.5.0",
+    "phonenumbers>=9.0.37",
     "psycopg2-binary>=2.9",
+    "psycopg[binary]>=3.3.4",
     "python-dotenv>=1.0",
+    "python-slugify>=8.0.4",
+    "redis>=6.4.0",
+    "scipy>=1.18.0",
 ]
