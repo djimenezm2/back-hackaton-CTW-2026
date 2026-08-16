@@ -6,8 +6,10 @@ refused, what survives the contradiction check, and how contacts accumulate.
 """
 
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import pytest
+from django.test import SimpleTestCase
 
 from ayudagente.radar.choices import (
     ContactKind,
@@ -20,7 +22,7 @@ from ayudagente.radar.choices import (
 from ayudagente.radar.models import Actor, ContactPoint, Event, Extraction, Location, Observation
 from ayudagente.radar.services.geocoding import Geocoder
 from ayudagente.radar.services.identity import IdentityResolver
-from ayudagente.radar.services.ingest import Ingestor
+from ayudagente.radar.services.ingest import Ingestor, _quantity
 
 
 @pytest.fixture
@@ -204,3 +206,36 @@ class TestMaterialisation:
         extraction = make_extraction(observation, [item("needs", "water"), item("needs", "food")])
         ingestor.ingest(extraction)
         assert Actor.objects.filter(canonical_name="Alcaldía de Herveo").count() == 1
+
+
+class QuantityTests(SimpleTestCase):
+    """
+    A number the column cannot hold is a number the model misread.
+
+    A live run lost an observation to `numeric field overflow`. The row failed, so it kept no
+    extraction, so every later pass picked it up and failed again — the same error forever.
+    """
+
+    def test_a_stated_amount_survives(self):
+        self.assertEqual(_quantity(5000), Decimal("5000.00"))
+
+    def test_an_amount_larger_than_the_column_is_dropped_not_raised(self):
+        # Almost certainly a phone number or a follower count read as a quantity
+        self.assertIsNone(_quantity(1e11))
+
+    def test_the_largest_the_column_holds_still_fits(self):
+        self.assertEqual(_quantity(9999999999.99), Decimal("9999999999.99"))
+
+    def test_a_negative_amount_is_dropped(self):
+        self.assertIsNone(_quantity(-3))
+
+    def test_nan_and_infinity_are_dropped_rather_than_compared(self):
+        # `Decimal("nan")` parses without complaint and only raises on the comparison
+        self.assertIsNone(_quantity(float("nan")))
+        self.assertIsNone(_quantity(float("inf")))
+
+    def test_nothing_stated_stays_nothing_stated(self):
+        self.assertIsNone(_quantity(None))
+
+    def test_more_decimals_than_the_column_holds_are_rounded(self):
+        self.assertEqual(_quantity(5000.555), Decimal("5000.56"))

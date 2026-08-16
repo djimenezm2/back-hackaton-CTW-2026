@@ -7,6 +7,7 @@ it came from. It is the last step that can still refuse — once a requirement e
 will act on it.
 """
 
+import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
 
@@ -35,8 +36,49 @@ from ayudagente.radar.services.identity import IdentityResolver
 from ayudagente.radar.services.resources import resolve_resource
 from ayudagente.radar.services.text import normalize
 
+logger = logging.getLogger(__name__)
+
 # Nothing below this is worth putting in front of a person during an emergency.
 MIN_ITEM_CONFIDENCE = 0.4
+
+# What `Requirement.quantity` can hold: numeric(12, 2)
+MAX_QUANTITY = Decimal("9999999999.99")
+
+
+def _quantity(value: float | None) -> Decimal | None:
+    """
+    A stated amount, or None when the number cannot be one.
+
+    Args:
+        value (float | None): What the model read as a quantity.
+
+    Returns:
+        Decimal | None: The amount, or None when it is negative, not finite, or larger than
+            the column holds.
+
+    Note:
+        Out of range means the model read something that was not a quantity — a phone number,
+        a year, a follower count. Dropping it keeps the requirement, and a null amount already
+        means "nobody stated one", which is the common case and reads correctly.
+
+        A live run lost an observation to `numeric field overflow` here. The row failed, so it
+        had no extraction, so every later pass picked it up and failed again — an error that
+        repeats itself forever is worse than one that happens once.
+
+        NaN is checked explicitly because `Decimal("nan")` parses without complaint and only
+        raises on the comparison, three lines further down.
+    """
+    if value is None:
+        return None
+    try:
+        amount = Decimal(str(value))
+    except (ArithmeticError, ValueError):
+        return None
+
+    if not amount.is_finite() or amount < 0 or amount > MAX_QUANTITY:
+        logger.info("dropped an out-of-range quantity: %s", value)
+        return None
+    return amount.quantize(Decimal("0.01"))
 
 
 @dataclass
@@ -196,7 +238,7 @@ class Ingestor:
             direction=Direction.NEEDS if item.direction == "needs" else Direction.OFFERS,
             resource=resource,
             free_text=item.resource[:300],
-            quantity=item.quantity,
+            quantity=_quantity(item.quantity),
             unit=item.unit[:30],
             location=location,
             urgency=item.urgency if item.urgency in Urgency.values else Urgency.MEDIUM,
@@ -269,8 +311,8 @@ class Ingestor:
         requirement.last_seen_at = max(
             requirement.last_seen_at, observation.posted_at or requirement.last_seen_at
         )
-        if requirement.quantity is None and item.quantity is not None:
-            requirement.quantity = Decimal(str(item.quantity))
+        if requirement.quantity is None and _quantity(item.quantity) is not None:
+            requirement.quantity = _quantity(item.quantity)
             requirement.unit = item.unit[:30]
             changed += ["quantity", "unit"]
 
