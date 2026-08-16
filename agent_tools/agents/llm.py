@@ -1,60 +1,81 @@
 """
-Where the chat model comes from.
+The chat model the agents run on.
 
-One factory, so every agent shares the same model, the same timeout and the same failure
-message. Configuration is read from the environment rather than passed around, because
-which model is in use is an operational fact and not an argument any caller should be able
-to get wrong.
+Thin on purpose. Which model each job gets is decided once, in `ayudagente.radar.llm`, and
+this module only wraps that choice in the LangChain interface deepagents needs. The rest of
+the system talks to OpenAI through the raw SDK; agents need a `BaseChatModel`, and that is
+the whole difference.
+
+Note:
+    Reading the role map rather than its own variable is the point. A second `OPENAI_MODEL`
+    here would drift from `OPENAI_MODEL_REASONING` the first time somebody changed one of
+    them, and the symptom — the agent quietly answering on a different model than the rest
+    of the pipeline — is invisible until the bill or the quality says so.
 """
 
-import os
-
+from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from langchain_core.language_models import BaseChatModel
 
-DEFAULT_MODEL = "gpt-4o"
-REQUEST_TIMEOUT_SECONDS = 60
+from ayudagente.radar.llm import Role, model_for
+
+REQUEST_TIMEOUT_SECONDS = 120
+# Reasoning models reject a temperature; only these accept one
+TEMPERATURE_CAPABLE_PREFIXES = ("gpt-4", "gpt-3.5")
 
 
 class LLMNotConfigured(RuntimeError):
-    """Credentials are missing. Raised at build time, never mid-conversation."""
+    """Credentials or a model name are missing. Raised at build time, never mid-turn."""
 
 
-def build_chat_model(temperature: float = 0.2) -> BaseChatModel:
+def accepts_temperature(model_name: str) -> bool:
     """
-    Build the chat model every agent runs on.
-
-    Args:
-        temperature (float): Low by default. These agents choose between concrete options
-            and write short factual messages; variety is not a feature here.
+    Report whether a model takes a `temperature`.
 
     Returns:
-        BaseChatModel: An OpenAI chat model, per `OPENAI_MODEL`.
+        bool: False for reasoning models, which reject the parameter outright rather than
+            ignoring it. Sending it turns every agent call into a 400.
+    """
+    return model_name.startswith(TEMPERATURE_CAPABLE_PREFIXES)
+
+
+def build_chat_model(role: Role = Role.REASONING) -> BaseChatModel:
+    """
+    Build the chat model an agent runs on.
+
+    Args:
+        role (Role): Which model tier to use. Agents are judgment, so reasoning by default.
+
+    Returns:
+        BaseChatModel: Configured from `OPENAI_API_KEY`, `OPENAI_MODELS` and
+            `OPENAI_REASONING_EFFORT`.
 
     Raises:
-        LLMNotConfigured: When the API key is missing.
-
-    Note:
-        `OPENAI_BASE_URL` is honoured when set, so a gateway or an OpenAI-compatible
-        provider needs no code change. The model must support tool calling: agents here do
-        nothing but call tools, and one that cannot will fail at the first turn rather than
-        degrade.
+        LLMNotConfigured: When the key or the role's model name is missing. Both are
+            reported here rather than at request time, so a missing variable surfaces as a
+            503 before the stream opens instead of an error event halfway through a turn.
     """
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
+    if not settings.OPENAI_API_KEY:
         raise LLMNotConfigured("missing environment variable: OPENAI_API_KEY")
+
+    try:
+        model_name = model_for(role)
+    except ImproperlyConfigured as exc:
+        raise LLMNotConfigured(str(exc)) from exc
 
     from langchain_openai import ChatOpenAI
 
     options: dict = {
-        "model": os.environ.get("OPENAI_MODEL", DEFAULT_MODEL),
-        "api_key": api_key,
-        "temperature": temperature,
+        "model": model_name,
+        "api_key": settings.OPENAI_API_KEY,
         "timeout": REQUEST_TIMEOUT_SECONDS,
         "max_retries": 2,
     }
 
-    base_url = os.environ.get("OPENAI_BASE_URL")
-    if base_url:
-        options["base_url"] = base_url
+    if accepts_temperature(model_name):
+        # Low: these agents pick between concrete options, they do not need variety
+        options["temperature"] = 0.2
+    else:
+        options["reasoning_effort"] = settings.OPENAI_REASONING_EFFORT
 
     return ChatOpenAI(**options)

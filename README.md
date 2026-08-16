@@ -36,8 +36,8 @@ surface instead of rotting under the default error floor. It is pinned to Python
 match `requires-python`, not the local interpreter, so anything newer gets flagged here
 rather than in someone else's environment.
 
-Tests live next to the code they cover. The default run is hermetic — anything needing
-Postgres, Azure or Apify is marked `live` and excluded, so `make test LIVE=1` is the opt-in.
+Tests live next to the code they cover. Anything needing OpenAI or Apify is marked `live`
+and excluded from the default run, so `make test LIVE=1` is the opt-in.
 
 ### Ports
 

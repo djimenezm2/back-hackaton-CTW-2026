@@ -12,6 +12,7 @@ weather, and any test that called the provider would stop the suite from being h
 import json
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import Client, TestCase
 from django.urls import reverse
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
@@ -19,7 +20,7 @@ from langchain_openai import ChatOpenAI
 
 from agent_tools.agents import render_prompt, translate_chunk
 from agent_tools.agents.build import load_prompt
-from agent_tools.agents.llm import DEFAULT_MODEL, LLMNotConfigured, build_chat_model
+from agent_tools.agents.llm import LLMNotConfigured, accepts_temperature, build_chat_model
 from agent_tools.agents.streaming import stream_agent, summarize_tool_result
 from agent_tools.registry import TOOLSETS
 from ayudagente.radar.tests.factories import make_event
@@ -210,27 +211,55 @@ class StreamAgentTests(TestCase):
 
 
 class LLMConfigTests(TestCase):
-    def test_a_missing_key_names_the_variable_to_set(self):
-        with patch.dict("os.environ", {}, clear=True), self.assertRaises(LLMNotConfigured) as ctx:
-            build_chat_model()
+    """One source of truth for which model runs: the role map the rest of the system uses."""
 
-        self.assertIn("OPENAI_API_KEY", str(ctx.exception))
-
-    def _build(self, **env) -> ChatOpenAI:
-        """Build under a clean environment, narrowed to the concrete model class."""
-        with patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test", **env}, clear=True):
+    def _build(self, model_name="gpt-5.6-sol", **overrides) -> ChatOpenAI:
+        """Build with a key present and one role mapped, narrowed to the concrete class."""
+        models = {**settings.OPENAI_MODELS, "reasoning": model_name}
+        with self.settings(OPENAI_API_KEY="sk-test", OPENAI_MODELS=models, **overrides):
             model = build_chat_model()
         assert isinstance(model, ChatOpenAI)
         return model
 
-    def test_the_model_is_configurable_and_defaults(self):
-        self.assertEqual(self._build().model_name, DEFAULT_MODEL)
-        self.assertEqual(self._build(OPENAI_MODEL="gpt-4o-mini").model_name, "gpt-4o-mini")
+    def test_a_missing_key_names_the_variable_to_set(self):
+        with self.settings(OPENAI_API_KEY=""), self.assertRaises(LLMNotConfigured) as ctx:
+            build_chat_model()
 
-    def test_a_custom_base_url_is_honoured_for_gateways(self):
-        model = self._build(OPENAI_BASE_URL="https://gateway.internal/v1")
+        self.assertIn("OPENAI_API_KEY", str(ctx.exception))
 
-        self.assertEqual(str(model.openai_api_base), "https://gateway.internal/v1")
+    def test_a_role_with_no_model_configured_is_refused(self):
+        models = {**settings.OPENAI_MODELS, "reasoning": ""}
+        with (
+            self.settings(OPENAI_API_KEY="sk-test", OPENAI_MODELS=models),
+            self.assertRaises(LLMNotConfigured) as ctx,
+        ):
+            build_chat_model()
+
+        self.assertIn("reasoning", str(ctx.exception))
+
+    def test_the_agent_runs_the_model_the_reasoning_role_names(self):
+        # Not its own variable: a second one would drift from OPENAI_MODEL_REASONING
+        self.assertEqual(self._build(model_name="gpt-5.6-sol").model_name, "gpt-5.6-sol")
+        self.assertEqual(self._build(model_name="gpt-4o").model_name, "gpt-4o")
+
+    def test_a_reasoning_model_gets_effort_and_no_temperature(self):
+        # Reasoning models reject `temperature` outright — sending it is a 400 every call
+        model = self._build(model_name="gpt-5.6-sol", OPENAI_REASONING_EFFORT="high")
+
+        self.assertEqual(model.reasoning_effort, "high")
+        self.assertIsNone(model.temperature)
+
+    def test_a_classic_model_gets_temperature_and_no_effort(self):
+        model = self._build(model_name="gpt-4o")
+
+        self.assertEqual(model.temperature, 0.2)
+        self.assertIsNone(model.reasoning_effort)
+
+    def test_the_capability_split_matches_the_model_families(self):
+        for name in ("gpt-5.6-sol", "gpt-5.6-luna", "o3-mini"):
+            self.assertFalse(accepts_temperature(name), name)
+        for name in ("gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"):
+            self.assertTrue(accepts_temperature(name), name)
 
 
 class AgentEndpointTests(TestCase):
@@ -269,7 +298,8 @@ class AgentEndpointTests(TestCase):
         self.assertEqual(self.client.get(self.url).status_code, 405)
 
     def test_missing_credentials_are_a_503_with_the_reason(self):
-        with patch.dict("os.environ", {}, clear=True):
+        # Overridden through settings, not the environment: that is where the key is read
+        with self.settings(OPENAI_API_KEY=""):
             response = self._post({"event_id": self.event.id, "message": "hola"})
 
         self.assertEqual(response.status_code, 503)

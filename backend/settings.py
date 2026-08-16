@@ -112,5 +112,8 @@ OPENAI_MODELS = {
     "triage": os.environ.get("OPENAI_MODEL_TRIAGE", "gpt-5.6-luna"),
     "embedding": os.environ.get("OPENAI_MODEL_EMBEDDING", "text-embedding-3-small"),
 }
+# How hard the reasoning models think. Higher is slower and better; the agents run while
+# someone waits, so the default trades depth for a reply that arrives.
+OPENAI_REASONING_EFFORT = os.environ.get("OPENAI_REASONING_EFFORT", "medium")
 
 GOOGLE_GEOCODING_API_KEY = os.environ.get("GOOGLE_GEOCODING_API_KEY", "")
