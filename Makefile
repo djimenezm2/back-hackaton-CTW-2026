@@ -25,7 +25,7 @@ MARKERS = $(if $(LIVE),-m "",)
 
 .DEFAULT_GOAL := help
 .PHONY: help init up down restart ps logs build rebuild \
-        check lint format types test migrate migrations shell run superuser seed unseed
+        check lint format types test migrate migrations shell run superuser seed unseed eval
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*##"; printf "Available commands:\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  make %-22s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -74,6 +74,9 @@ seed: ## Load the seed datasets (idempotent). make seed ARGS="--list" to see the
 
 unseed: ## Delete the seed datasets
 	$(MANAGE) seed --clear $(ARGS)
+
+eval: ## Score the extraction prompt against real posts (calls the model)
+	$(MANAGE) eval_extraction $(ARGS)
 
 migrations: ## Generate migrations
 	$(MANAGE) makemigrations $(ARGS)

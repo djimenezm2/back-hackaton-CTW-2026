@@ -162,7 +162,8 @@ class Media(models.Model):
 
     Platform media URLs are signed and expire within hours or days, so storing only the
     link leaves the frontend with broken images and the model with nothing to re-evaluate.
-    Hence `blob_path`: our own copy in Azure Blob Storage.
+    Hence `blob_path`: our own copy, stored under `MEDIA_ROOT` rather than in Postgres,
+    because hundreds of megabytes of bytes belong in a filesystem and not in every backup.
 
     Note:
         For videos we keep the frames the vision model actually looked at, not the full
@@ -181,7 +182,7 @@ class Media(models.Model):
     kind = models.CharField(max_length=20, choices=MediaKind.choices)
 
     source_url = models.URLField(max_length=1000)
-    blob_path = models.CharField(max_length=400, blank=True)
+    blob_path = models.CharField(max_length=400, blank=True)  # relative to MEDIA_ROOT
     sha256 = models.CharField(max_length=64, blank=True, db_index=True)
     size_bytes = models.IntegerField(null=True, blank=True)
 
@@ -206,7 +207,7 @@ class Extraction(models.Model):
 
     Classification, structured fields, image reading and the geocoding query string all come
     out of one schema-constrained call. It is done this way rather than in four calls for
-    two reasons: Azure's per-deployment TPM quota is the real bottleneck, and the model
+    two reasons: the per-model rate limit is the real bottleneck, and the model
     resolves contradictions better when it sees text and image together.
 
     Note:
@@ -221,7 +222,7 @@ class Extraction(models.Model):
     observation = models.OneToOneField(
         Observation, on_delete=models.CASCADE, related_name="extraction"
     )
-    model = models.CharField(max_length=80)  # Azure deployment used
+    model = models.CharField(max_length=80)  # model id used
     prompt_version = models.CharField(max_length=20)
 
     classification = models.CharField(max_length=20, choices=ExtractionClass.choices)

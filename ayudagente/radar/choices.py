@@ -80,7 +80,6 @@ class ExtractionClass(models.TextChoices):
     NEED = "need", "Need"
     OFFER = "offer", "Offer"
     BOTH = "both", "Need and offer"
-    INFORMATIONAL = "informational", "Informational"
     DISCARD = "discard", "Discard"
 
 
