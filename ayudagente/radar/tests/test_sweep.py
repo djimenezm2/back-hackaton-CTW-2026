@@ -281,6 +281,16 @@ class BootstrapTests(TestCase):
         load_country("CO", rows=DUMP)
         self.event = make_event(epicenter=QUIBDO, country_code="CO")
 
+    def test_a_place_sitting_on_the_epicentre_still_gets_a_node(self):
+        epicentre_unit = AdminUnit.objects.filter(country_code="CO").order_by("id")[0]
+        self.event.epicenter = epicentre_unit.centroid
+        self.event.save(update_fields=["epicenter"])
+
+        bootstrap_event(self.event, platforms=["x"])
+
+        node = FrontierNode.objects.get(admin_unit=epicentre_unit, platform="x")
+        self.assertEqual(node.distance_km, 0)  # zero is a distance, not a missing one
+
     def test_it_creates_watch_targets_and_queues_the_sweep(self):
         counts = bootstrap_event(self.event, platforms=["x", "facebook"])
 

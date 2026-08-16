@@ -16,9 +16,10 @@ Note:
     forever. `PROBE_AFTER` is the escape: past it a round runs regardless, because the only
     way to learn that the world moved is to look.
 
-    The spend ceiling below is a circuit breaker, not a budget. Nothing weighs it against
-    anything; it exists so a runaway loop at three in the morning stops instead of billing
-    until someone wakes up.
+    The spend ceilings below are circuit breakers, not budgets. Nothing weighs them against
+    anything; they exist so a runaway loop at three in the morning stops instead of billing
+    until someone wakes up. One is per event and pauses it; the global one refuses at the
+    gate and leaves the state alone, so lifting it resumes everything without rearming.
 """
 
 import logging
@@ -154,6 +155,47 @@ def trip_ceiling(event: Event) -> bool:
         settings.HARVEST_SPEND_CEILING_USD,
     )
     return True
+
+
+def total_spent() -> Decimal:
+    """
+    What every event has spent between them.
+
+    Returns:
+        Decimal: The sum of `Event.spent_usd`, zero when nothing has been harvested yet.
+    """
+    return Event.objects.aggregate(total=Sum("spent_usd"))["total"] or Decimal("0")
+
+
+def harvest_refusal(event: Event) -> str | None:
+    """
+    Why this event must not be harvested right now, or None when it may be.
+
+    Args:
+        event (Event): The emergency the job belongs to.
+
+    Returns:
+        str | None: A reason fit for a log line, or None to proceed.
+
+    Note:
+        Asked at the moment of spending, not at the moment of deciding. The status and the
+        per-event ceiling used to be consulted only where jobs are *created*, so a job queued
+        while an event was active still billed after the event was paused. This is the last
+        gate before Apify and it holds regardless of who queued the job, or when.
+
+        A refusal leaves the job pending on purpose. Raising the ceiling is then the whole
+        undo, which is what makes the breaker something a human can lift mid-demonstration.
+    """
+    if not event.is_harvestable:
+        return f"event is {event.status}"
+    if _over_ceiling(event):
+        return f"event spend ceiling reached at ${event.spent_usd}"
+
+    ceiling = Decimal(str(settings.HARVEST_SPEND_TOTAL_CEILING_USD))
+    spent = total_spent()
+    if ceiling > 0 and spent >= ceiling:
+        return f"global spend ceiling reached at ${spent} of ${ceiling}"
+    return None
 
 
 def _over_ceiling(event: Event) -> bool:

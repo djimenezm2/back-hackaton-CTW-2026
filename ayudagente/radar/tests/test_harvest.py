@@ -12,11 +12,18 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from ayudagente.radar.choices import DecisionSource, JobStatus, Platform, Zone
-from ayudagente.radar.models import AdminUnit, FrontierNode, HarvestJob, Media, Observation
+from ayudagente.radar.choices import DecisionSource, EventStatus, JobStatus, Platform, Zone
+from ayudagente.radar.models import (
+    AdminUnit,
+    Event,
+    FrontierNode,
+    HarvestJob,
+    Media,
+    Observation,
+)
 from ayudagente.radar.services.harvest import (
     ACTOR_DOWN_STREAK,
     HarvestNotConfigured,
@@ -316,3 +323,70 @@ class ActorDownTests(HarvestBase):
     def _latest(self) -> HarvestJob:
         """The job the test just ran, which is always the newest row."""
         return HarvestJob.objects.order_by("-id")[0]
+
+
+@override_settings(HARVEST_SPEND_CEILING_USD=0, HARVEST_SPEND_TOTAL_CEILING_USD=0)
+class SpendGateTests(HarvestBase):
+    """
+    What the last gate before Apify refuses, and what refusing leaves behind.
+
+    Note:
+        The status and the per-event ceiling were only ever consulted where jobs are created,
+        so a job queued while an event was active still billed after it was paused. Every
+        case here queues the job first and changes the world second, because that ordering is
+        the bug and asserting on it is the point.
+    """
+
+    def test_a_paused_event_does_not_spend_on_a_job_queued_while_it_was_active(self):
+        job = self._job()
+        self.event.status = EventStatus.PAUSED
+        self.event.save(update_fields=["status"])
+        client = FakeClient(items=[tweet("1")])
+
+        result = run_harvest_job(job.pk, client=client)
+
+        self.assertEqual(client.calls, [])
+        self.assertEqual(result.items_returned, 0)
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatus.PENDING)  # untimely, not failed
+
+    @override_settings(HARVEST_SPEND_TOTAL_CEILING_USD=5)
+    def test_the_global_ceiling_stops_a_job_the_per_event_one_would_allow(self):
+        Event.objects.filter(pk=self.event.pk).update(spent_usd=Decimal("3.00"))
+        make_event(name="another emergency", spent_usd=Decimal("2.50"))
+        job = self._job()
+        client = FakeClient(items=[tweet("1")])
+
+        run_harvest_job(job.pk, client=client)
+
+        self.assertEqual(client.calls, [])
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatus.PENDING)
+
+    @override_settings(HARVEST_SPEND_CEILING_USD=5)
+    def test_the_per_event_ceiling_stops_the_job(self):
+        Event.objects.filter(pk=self.event.pk).update(spent_usd=Decimal("5.00"))
+        job = self._job()
+        client = FakeClient(items=[tweet("1")])
+
+        run_harvest_job(job.pk, client=client)
+
+        self.assertEqual(client.calls, [])
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatus.PENDING)
+
+    def test_raising_the_global_ceiling_resumes_the_job_that_was_refused(self):
+        Event.objects.filter(pk=self.event.pk).update(spent_usd=Decimal("6.00"))
+        job = self._job()
+
+        with override_settings(HARVEST_SPEND_TOTAL_CEILING_USD=5):
+            run_harvest_job(job.pk, client=FakeClient(items=[tweet("1")]))
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatus.PENDING)
+
+        with override_settings(HARVEST_SPEND_TOTAL_CEILING_USD=50):
+            result = run_harvest_job(job.pk, client=FakeClient(items=[tweet("1")]))
+
+        self.assertEqual(result.items_new, 1)  # the same job, no requeue needed
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatus.DONE)

@@ -235,13 +235,26 @@ def _create_nodes(event: Event, platforms: list[str]) -> int:
                     event=event,
                     admin_unit=unit,
                     platform=platform,
-                    defaults={
-                        "zone": zone,
-                        "distance_km": getattr(unit, "distance", None) and unit.distance.km,  # type: ignore[attr-defined]  # annotated above
-                    },
+                    defaults={"zone": zone, "distance_km": _distance_km(unit)},
                 )
                 created += int(was_created)
     return created
+
+
+def _distance_km(unit) -> float | None:
+    """
+    How far a place sits from the epicentre, in kilometres.
+
+    Returns:
+        float | None: None when the queryset carried no distance annotation.
+
+    Note:
+        Tested against None rather than for truth. A `Distance` of zero is falsy, so the
+        shorter idiom stored the measure object itself in a float column and a unit whose
+        centroid landed on the epicentre could not be armed at all.
+    """
+    distance = getattr(unit, "distance", None)
+    return None if distance is None else distance.km
 
 
 def _create_sweep_jobs(event: Event, platforms: list[str]) -> int:

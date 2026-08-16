@@ -1,12 +1,15 @@
 """List every event and say what each one is allowed to do."""
 
 from argparse import ArgumentParser
+from decimal import Decimal
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db.models import Count, Q
 
 from ayudagente.radar.choices import EventStatus
 from ayudagente.radar.models import Event
+from ayudagente.radar.services.pacing import total_spent
 
 ROW = "{pk:>4}  {status:<9} {harvest:<9} {occurred:<16} {needs:>6} {offers:>7} {spent:>9}  {name}"
 
@@ -59,6 +62,7 @@ class Command(BaseCommand):
         for event in events:
             self.stdout.write(self._row(event))
 
+        self._spend()
         self._waiting()
 
     def _row(self, event: Event) -> str:
@@ -74,6 +78,31 @@ class Command(BaseCommand):
             name=event.name,
         )
         return self.style.SUCCESS(line) if event.is_harvestable else line
+
+    def _spend(self) -> None:
+        """
+        Total spend against the global breaker, and whether it is currently blocking.
+
+        Note:
+            Printed because the global ceiling refuses at the gate instead of pausing, so a
+            blocked system still shows every event as harvestable. Without this line the
+            listing would say yes while nothing harvests, which is the shape of the failure
+            this project has already paid for once.
+        """
+        ceiling = Decimal(str(settings.HARVEST_SPEND_TOTAL_CEILING_USD))
+        spent = total_spent()
+        if ceiling <= 0:
+            self.stdout.write(f"\nspent ${spent} in total, no global ceiling set")
+            return
+
+        line = f"\nspent ${spent} of a ${ceiling} global ceiling"
+        if spent >= ceiling:
+            self.stdout.write(
+                self.style.ERROR(f"{line} — BLOCKED, nothing will harvest until it is raised")
+            )
+            self.stdout.write("raise it with:  make prod.ceiling USD=<amount>")
+            return
+        self.stdout.write(line)
 
     def _waiting(self) -> None:
         """Say how to arm a candidate, when there is one to arm."""

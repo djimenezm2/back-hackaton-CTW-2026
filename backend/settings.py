@@ -161,3 +161,6 @@ APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")
 
 # Circuit breaker, not a budget: past this an event is paused. Zero disables it
 HARVEST_SPEND_CEILING_USD = float(os.environ.get("HARVEST_SPEND_CEILING_USD", 25))
+
+# The same breaker across every event, refused at the gate so raising it resumes on the spot
+HARVEST_SPEND_TOTAL_CEILING_USD = float(os.environ.get("HARVEST_SPEND_TOTAL_CEILING_USD", 25))

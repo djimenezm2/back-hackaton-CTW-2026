@@ -36,7 +36,7 @@ from ayudagente.radar.choices import HarvestTarget, JobStatus
 from ayudagente.radar.models import Event, HarvestJob, Media, Observation
 from ayudagente.radar.services.frontier import record_harvest
 from ayudagente.radar.services.normalize import normalize
-from ayudagente.radar.services.pacing import trip_ceiling
+from ayudagente.radar.services.pacing import harvest_refusal, trip_ceiling
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +190,8 @@ def run_harvest_job(job_id: int, client=None) -> Harvested:
         client: Override for tests. Defaults to a client built from the settings.
 
     Returns:
-        Harvested: What the run produced. Empty counts when the Actor returned nothing.
+        Harvested: What the run produced. Empty counts when the Actor returned nothing, and
+            also when `harvest_refusal` stopped the job before it could spend.
 
     Raises:
         HarvestNotConfigured: When no Apify token is set.
@@ -200,6 +201,10 @@ def run_harvest_job(job_id: int, client=None) -> Harvested:
             caller decides whether to retry; the row already says what happened.
 
     Note:
+        A refused job stays `pending` and is not marked failed. It was never wrong, only
+        untimely, and leaving it queued is what lets raising the ceiling resume the sweep
+        instead of forcing somebody to queue it again.
+
         The job is marked `running` before the call and never inside the same transaction as
         the persistence. A worker killed mid-run must leave a row that says `running`, because
         a row still saying `pending` would be picked up again by the next dispatch.
@@ -212,6 +217,11 @@ def run_harvest_job(job_id: int, client=None) -> Harvested:
     job = HarvestJob.objects.select_related("event", "node").get(pk=job_id)
     if job.status != JobStatus.PENDING:
         raise ValueError(f"job {job_id} is {job.status}, not pending")
+
+    refusal = harvest_refusal(job.event)
+    if refusal is not None:
+        logger.warning("harvest job %s refused: %s", job_id, refusal)
+        return Harvested()
 
     job.status = JobStatus.RUNNING
     job.save(update_fields=["status"])

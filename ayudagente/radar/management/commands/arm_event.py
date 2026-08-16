@@ -7,6 +7,7 @@ from django.db import transaction
 
 from ayudagente.radar.choices import EventStatus
 from ayudagente.radar.models import AdminUnit, Event
+from ayudagente.radar.services.gazetteer import GazetteerError, load_country
 from ayudagente.radar.services.sweep import bootstrap_event
 
 
@@ -42,19 +43,15 @@ class Command(BaseCommand):
 
         Raises:
             CommandError: When no such event exists, when it is already active, or when its
-                country has no gazetteer — a sweep with no toponym pulls in other countries'
-                disasters, which is invariant 9.
+                country's gazetteer cannot be loaded — a sweep with no toponym pulls in other
+                countries' disasters, which is invariant 9.
         """
         event = Event.objects.filter(pk=options["event_id"]).first()
         if event is None:
             raise CommandError(f"no event {options['event_id']}")
         if event.status == EventStatus.ACTIVE:
             raise CommandError(f"{event.name} is already active")
-        if not AdminUnit.objects.filter(country_code=event.country_code).exists():
-            raise CommandError(
-                f"no gazetteer for {event.country_code}; run "
-                f"`manage.py load_gazetteer {event.country_code}` first"
-            )
+        self._ensure_gazetteer(event)
 
         with transaction.atomic():
             event.languages = _terms(options["languages"])
@@ -71,6 +68,38 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"armed {event} (id {event.pk})"))
         self.stdout.write(f"  {counts['nodes']} watch targets, {counts['jobs']} sweep jobs queued")
         self.stdout.write(f"\nrun them with:  make harvest ARGS='{event.pk}'")
+
+    def _ensure_gazetteer(self, event: Event) -> None:
+        """
+        Load the event's country from GeoNames when nothing local covers it yet.
+
+        Args:
+            event (Event): The emergency about to be armed.
+
+        Raises:
+            CommandError: When the dump cannot be read, or holds no unit for the country.
+                Arming without toponyms queues a sweep that pulls in other countries'
+                disasters, which is invariant 9.
+
+        Note:
+            Done here rather than by hand because the event already carries its country and
+            the dump costs nothing. Detection stays free and continuous; arming is the first
+            act that prepares to spend, so it is the right one to pay a download.
+        """
+        code = event.country_code.upper()
+        if AdminUnit.objects.filter(country_code=code).exists():
+            return
+
+        self.stdout.write(f"no gazetteer for {code} yet, downloading it from GeoNames")
+        try:
+            load_country(code)
+        except GazetteerError as exc:
+            raise CommandError(f"could not load the gazetteer for {code}: {exc}") from exc
+
+        total = AdminUnit.objects.filter(country_code=code).count()
+        if not total:
+            raise CommandError(f"the GeoNames dump for {code} held no administrative units")
+        self.stdout.write(self.style.SUCCESS(f"  {total} places loaded for {code}"))
 
 
 def _terms(raw: str) -> list[str]:
