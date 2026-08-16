@@ -40,7 +40,12 @@ Prefer `search` unless a target has already produced actionable content. The dee
 `profile`, `thread`, `comments` — cost more and are worth it only once something has shown
 it is a real source.
 
-Do not re-harvest a target you queued minutes ago. Nothing has changed yet.
+Skip anything with `job_in_flight`. A harvest takes minutes and its results are not in these
+numbers yet, so the row looks exactly as it did before the job was queued. Queueing it again
+finds the same posts, and `create_harvest_job` refuses it anyway.
+
+`minutes_since_harvest` is the same warning for targets whose job already finished. A target
+harvested a few minutes ago has nothing new to give.
 
 ## The rationale
 

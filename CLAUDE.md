@@ -169,14 +169,28 @@ Apify is marked `live` and excluded, so `make test LIVE=1` is the opt-in.
 
 ## Status
 
-**Built:** data model (15 models, migrated), the deterministic service layer
-(`services/matching.py`, `outreach.py`, `requirements.py`, `routing.py`), the extraction →
-geocoding → identity → ingest pipeline and its Celery tasks, both agents, the HTTP API behind
-an API key ([`docs/api.md`](docs/api.md)), tooling, docker stack.
+**Built:** data model (16 models, migrated), the deterministic service layer
+(`services/matching.py`, `outreach.py`, `requirements.py`, `routing.py`, `graph.py`), the
+harvest → normalize → extract → geocode → identity → ingest pipeline and its Celery tasks,
+both agents, the HTTP API behind an API key ([`docs/api.md`](docs/api.md)), tooling, docker
+stack.
 
-**Not built yet:** `services/harvest.py` — the Apify client that feeds the pipeline something
-other than the seeded pilot corpus. Then admin registrations, the GeoNames loader, and the
-watch stage that detects an event in the first place. Each is its own slice.
+**Not built yet:** the scheduler that makes the loop perpetual — a Celery beat entry and a
+non-HTTP entry point for the frontier agent, with a fresh thread per round so the checkpointer
+does not carry every previous round into the next prompt. Then node bootstrap from `AdminUnit`,
+promotion of proven accounts to nodes, automatic `exhausted`, media download, and the watch
+stage that detects an event in the first place. Each is its own slice.
+
+**The harvest loop is closed and that is load-bearing.** `services/harvest.py` runs a job and
+writes back through `record_harvest`; `tasks.process_observation` credits the target through
+`record_actionable_find`. Without both, `FrontierNode` never changes and an agent running every
+half hour reads identical rows and queues identical jobs — it repeats rather than learns. Any
+change that bypasses those two writers reintroduces that.
+
+**Novelty is the pacing signal, not cost.** `HarvestJob.items_new` says how much a pass added
+after deduplication. A round that returns 200 items of which 195 are already held has exhausted
+that query for now, and the answer is to wait, not to spend more. This stays consistent with
+"cost is recorded, never used to decide": novelty is quality, not price.
 
 **Known gap to respect when building extraction:** `Requirement.evidence` is many-to-many to
 `Observation` because one post can legitimately produce several requirements. A post listing

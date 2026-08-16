@@ -125,3 +125,6 @@ OPENAI_MODELS = {
 }
 
 GOOGLE_GEOCODING_API_KEY = os.environ.get("GOOGLE_GEOCODING_API_KEY", "")
+
+# Apify. Without it the frontier can decide where to look but nothing ever fetches a post
+APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")

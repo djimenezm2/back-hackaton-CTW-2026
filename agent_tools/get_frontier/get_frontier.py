@@ -9,6 +9,10 @@ Note:
     `is_unexplored` is sent explicitly rather than left to be inferred from `passes == 0`.
     A fixed share of every round has to go to targets with no history, and the agent cannot
     honour a rule whose input it has to derive.
+
+    So is `job_in_flight`. A harvest takes minutes, so a round firing while the last one is
+    still running sees a scoreboard where nothing has moved — same yields, same staleness —
+    and queues the same targets again. The counters cannot show that; only the job can.
 """
 
 from django.utils import timezone
@@ -16,7 +20,9 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from agent_tools.shared import ToolInputError, get_event
+from ayudagente.radar.models import HarvestJob
 from ayudagente.radar.services import get_frontier as get_frontier_service
+from ayudagente.radar.services.frontier import IN_FLIGHT_STATUSES
 
 MAX_NODES = 60
 
@@ -35,9 +41,13 @@ def _minutes_since(moment) -> int | None:
     return int((timezone.now() - moment).total_seconds() // 60)
 
 
-def serialize(node) -> dict:
+def serialize(node, in_flight: set[int] | None = None) -> dict:
     """
     Describe one watch target as a decision, not as a database row.
+
+    Args:
+        node: The frontier node.
+        in_flight (set[int] | None): Node ids with a harvest already queued or running.
 
     Returns:
         dict: `node_id` is what `create_harvest_job` accepts. Timestamps become ages in
@@ -45,6 +55,7 @@ def serialize(node) -> dict:
     """
     return {
         "node_id": node.id,
+        "job_in_flight": node.id in (in_flight or set()),
         "target": node.actor.canonical_name if node.watches_account else node.admin_unit.name,
         "target_kind": "account" if node.watches_account else "place",
         "platform": node.platform,
@@ -79,6 +90,10 @@ def get_frontier(event_id: int, limit: int = MAX_NODES) -> dict:
     hours is worth less than the number alone suggests. Exhausted and paused targets are
     not listed — they are not decisions left to make.
 
+    `job_in_flight` marks targets already being harvested. Skip them: a harvest takes minutes
+    and its results are not in these numbers yet, so queueing one again buys nothing and
+    `create_harvest_job` will refuse it.
+
     Use `node_id` with `create_harvest_job` to act on one.
     """
     try:
@@ -87,10 +102,16 @@ def get_frontier(event_id: int, limit: int = MAX_NODES) -> dict:
         return {**exc.payload, "nodes": []}
 
     nodes = get_frontier_service(event_id, limit=min(limit, MAX_NODES))
-    rows = [serialize(node) for node in nodes]
+    in_flight = set(
+        HarvestJob.objects.filter(node__in=nodes, status__in=IN_FLIGHT_STATUSES).values_list(
+            "node_id", flat=True
+        )
+    )
+    rows = [serialize(node, in_flight) for node in nodes]
 
     return {
         "count": len(rows),
         "unexplored": sum(1 for row in rows if row["is_unexplored"]),
+        "in_flight": len(in_flight),
         "nodes": rows,
     }

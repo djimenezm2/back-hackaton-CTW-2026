@@ -24,8 +24,11 @@ from celery import shared_task
 from django.db import transaction
 from openai import APIError, RateLimitError
 
-from ayudagente.radar.models import Event, Extraction, Observation, Requirement
+from ayudagente.radar.choices import JobStatus
+from ayudagente.radar.models import Event, Extraction, HarvestJob, Observation, Requirement
 from ayudagente.radar.services.extraction import Extractor
+from ayudagente.radar.services.frontier import record_actionable_find
+from ayudagente.radar.services.harvest import HarvestNotConfigured, run_harvest_job
 from ayudagente.radar.services.ingest import Ingested, Ingestor
 
 logger = logging.getLogger(__name__)
@@ -67,6 +70,7 @@ def process_observation(self, observation_id: int, *, force: bool = False) -> di
 
     extraction = Extractor().run(observation, force=force)
     outcome: Ingested = Ingestor().ingest(extraction)
+    record_actionable_find(observation, len(outcome.requirements))
 
     return {
         "observation": observation_id,
@@ -98,6 +102,73 @@ def process_event(event_id: int, *, limit: int | None = None, force: bool = Fals
         process_observation.delay(observation_id, force=force)  # type: ignore[attr-defined]
     logger.info("queued %s observations for event %s", len(ids), event_id)
     return {"event": event_id, "queued": len(ids)}
+
+
+@shared_task(
+    bind=True,
+    autoretry_for=(Exception,),
+    dont_autoretry_for=(HarvestNotConfigured, ValueError),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    retry_jitter=True,
+    max_retries=3,
+)
+def harvest(self, job_id: int) -> dict:
+    """
+    Run one harvest job and queue the pipeline over whatever it brought back.
+
+    Args:
+        job_id (int): The pending job to execute.
+
+    Returns:
+        dict: What the run produced, so a caller can total a round without querying.
+
+    Note:
+        Retries on anything transient — Apify rate limits and 5xx are routine — but never on
+        a missing token or a job that is not pending. Those do not get better by waiting, and
+        retrying them buries the real cause under three identical failures.
+
+        The job is marked `running` by the service before the call, so a retry of a job that
+        already started refuses rather than billing twice. That is deliberate: a duplicate
+        harvest costs real money and produces nothing, since the posts are already stored.
+    """
+    result = run_harvest_job(job_id)
+    for observation_id in result.observation_ids:
+        process_observation.delay(observation_id)  # type: ignore[attr-defined]
+
+    return {
+        "job": job_id,
+        "items_returned": result.items_returned,
+        "items_new": result.items_new,
+        "media": result.media,
+        "skipped": result.skipped,
+    }
+
+
+@shared_task
+def harvest_pending(event_id: int, *, limit: int | None = None) -> dict:
+    """
+    Dispatch every job the frontier agent has queued and nobody has run.
+
+    Args:
+        event_id (int): The event whose jobs to run.
+        limit (int | None): Cap on how many to dispatch in this round.
+
+    Returns:
+        dict: How many were dispatched.
+
+    Note:
+        Oldest first. A job queued twenty minutes ago was decided against a scoreboard that
+        has since moved, and running it before a fresher one keeps the lag from growing.
+    """
+    jobs = HarvestJob.objects.filter(event_id=event_id, status=JobStatus.PENDING).order_by(
+        "created_at"
+    )
+    ids = list(jobs.values_list("pk", flat=True)[: limit or None])
+    for job_id in ids:
+        harvest.delay(job_id)  # type: ignore[attr-defined]
+    logger.info("dispatched %s harvest jobs for event %s", len(ids), event_id)
+    return {"event": event_id, "dispatched": len(ids)}
 
 
 def pending_observations(event_id: int, *, force: bool = False):

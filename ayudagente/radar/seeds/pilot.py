@@ -15,9 +15,10 @@ from django.conf import settings
 from django.contrib.gis.geos import Point
 
 from ayudagente.radar.choices import DecisionSource, JobStatus
-from ayudagente.radar.models import Event, HarvestJob, Media, Observation
+from ayudagente.radar.models import Event, HarvestJob
 from ayudagente.radar.seeds.base import Counts, Seed, Writer
-from ayudagente.radar.services.normalize import normalize, parse_timestamp
+from ayudagente.radar.services.harvest import persist_items
+from ayudagente.radar.services.normalize import parse_timestamp
 
 PILOT_DIR = Path(settings.BASE_DIR) / "data" / "pilot"
 
@@ -88,36 +89,21 @@ def _load_file(base: Path, spec: dict, event: Event, write: Writer) -> Counts:
         },
     )
 
-    created = media_created = skipped = 0
-    for item in items:
-        fields, media_specs = normalize(
-            spec["platform"], item, is_comment=spec.get("is_comment", False)
-        )
-        if not fields.get("platform_id") or not fields.get("posted_at"):
-            skipped += 1
-            continue
+    # The same writer the live harvest uses, so a replayed post and a fetched one are equal
+    result = persist_items(job, items, is_comment=spec.get("is_comment", False))
 
-        observation, was_created = Observation.objects.get_or_create(
-            platform=spec["platform"],
-            platform_id=fields["platform_id"],
-            defaults={**fields, "event": event, "job": job, "raw": item},
-        )
-        if not was_created:
-            continue
-        created += 1
-
-        # These source URLs expired long ago; the alt text beside them is still usable
-        Media.objects.bulk_create(Media(observation=observation, **media) for media in media_specs)
-        media_created += len(media_specs)
-
-    if created:
-        job.items_new = created
+    if result.items_new:
+        job.items_new = result.items_new
         job.save(update_fields=["items_new"])
     write(
-        f"  {spec['file']:<26} {created:>4} observations, "
-        f"{media_created:>4} media, {skipped:>3} skipped"
+        f"  {spec['file']:<26} {result.items_new:>4} observations, "
+        f"{result.media:>4} media, {result.skipped:>3} skipped"
     )
-    return {"observations": created, "media": media_created, "skipped": skipped}
+    return {
+        "observations": result.items_new,
+        "media": result.media,
+        "skipped": result.skipped,
+    }
 
 
 def load(write: Writer) -> Counts:

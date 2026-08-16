@@ -15,11 +15,19 @@ from ayudagente.radar.services.frontier import (
     build_search_query,
     create_harvest_job,
     get_frontier,
+    record_actionable_find,
+    record_harvest,
 )
 from ayudagente.radar.services.graph import (
     build_graph_payload,
     input_fingerprint,
     refresh_graph,
+)
+from ayudagente.radar.services.harvest import (
+    Harvested,
+    HarvestNotConfigured,
+    persist_items,
+    run_harvest_job,
 )
 from ayudagente.radar.services.matching import (
     is_matchable_location,
@@ -39,6 +47,8 @@ from ayudagente.radar.services.requirements import (
 from ayudagente.radar.services.routing import RoutingError, plan_trip_stops, road_distance
 
 __all__ = [
+    "HarvestNotConfigured",
+    "Harvested",
     "RoutingError",
     "best_contact_point",
     "build_graph_payload",
@@ -54,13 +64,17 @@ __all__ = [
     "input_fingerprint",
     "is_matchable_location",
     "match_participants",
+    "persist_items",
     "plan_trip_stops",
     "propose_match",
+    "record_actionable_find",
+    "record_harvest",
     "refresh_graph",
     "resolve_resource",
     "resource_catalog",
     "resource_family",
     "road_distance",
     "routable",
+    "run_harvest_job",
     "run_matching_pass",
 ]

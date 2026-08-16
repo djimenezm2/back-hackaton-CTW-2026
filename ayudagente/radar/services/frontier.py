@@ -10,7 +10,16 @@ Note:
     guarantees depend on that: every query carries a real toponym, and the terms belonging
     to other concurrent emergencies are excluded. Both are one hallucination away from gone
     if the model composes the string.
+
+    The counters are written back here too, and that is what makes the loop a loop. Without
+    `record_harvest` and `record_actionable_find` the scoreboard never changes, so a frontier
+    agent running every half hour reads identical rows and queues identical jobs all night.
 """
+
+from datetime import timedelta
+
+from django.db import transaction
+from django.utils import timezone
 
 from ayudagente.radar.choices import (
     DecisionSource,
@@ -19,7 +28,7 @@ from ayudagente.radar.choices import (
     NodeStatus,
     Platform,
 )
-from ayudagente.radar.models import AdminUnit, Event, FrontierNode, HarvestJob
+from ayudagente.radar.models import AdminUnit, Event, FrontierNode, HarvestJob, Observation
 
 # One Apify actor per platform. The agent picks a target, never an implementation.
 APIFY_ACTOR_BY_PLATFORM = {
@@ -31,6 +40,12 @@ APIFY_ACTOR_BY_PLATFORM = {
 
 MAX_QUERY_TERMS = 12
 MAX_NEGATIVE_TERMS = 6
+
+# A job in either state is still going to produce posts; a second one would duplicate it
+IN_FLIGHT_STATUSES = (JobStatus.PENDING, JobStatus.RUNNING)
+
+# How long a target stays off the table after being harvested
+COOLDOWN = timedelta(minutes=20)
 
 
 def get_frontier(event_id: int, limit: int = 60) -> list[FrontierNode]:
@@ -110,12 +125,18 @@ def create_harvest_job(
 
     Raises:
         ValueError: When the event is not harvestable, when the node does not belong to it,
-            when the platform has no configured Apify actor, or when `rationale` is empty.
+            when the platform has no configured Apify actor, when `rationale` is empty, or
+            when this target was already queued or harvested too recently.
 
     Note:
         `rationale` is refused when blank rather than defaulted. It is the only record of
         why the agent spent a pass here, and an empty one makes both debugging and the
         dashboard useless.
+
+        The duplicate guard is deliberate redundancy. The prompt already tells the agent not
+        to re-harvest what it queued minutes ago, but a job takes minutes to run, so a round
+        firing in between reads a scoreboard where nothing has moved yet. The prompt is the
+        first defence and this is the one that holds when the model is wrong.
     """
     if not rationale or not rationale.strip():
         raise ValueError("rationale is mandatory: every agent decision records why")
@@ -133,6 +154,8 @@ def create_harvest_job(
     )
     if node is None:
         raise ValueError(f"frontier node {node_id} does not belong to event {event_id}")
+
+    _refuse_duplicate(node, target_kind)
 
     apify_actor = APIFY_ACTOR_BY_PLATFORM.get(Platform(node.platform))
     if apify_actor is None:
@@ -157,3 +180,98 @@ def create_harvest_job(
         rationale=rationale.strip(),
         status=JobStatus.PENDING,
     )
+
+
+def _refuse_duplicate(node: FrontierNode, target_kind: str) -> None:
+    """
+    Reject a target that is already being harvested, or was harvested moments ago.
+
+    Args:
+        node (FrontierNode): The target.
+        target_kind (str): Scoped per kind — a place sweep and a comment pull on the same
+            node are different work and may legitimately run close together.
+
+    Raises:
+        ValueError: Naming what is already in flight and when the target frees up, so the
+            agent can pick something else instead of retrying the same call.
+    """
+    in_flight = HarvestJob.objects.filter(
+        node=node, target_kind=target_kind, status__in=IN_FLIGHT_STATUSES
+    ).first()
+    if in_flight is not None:
+        raise ValueError(
+            f"node {node.id} already has a {target_kind} job {in_flight.status} "
+            f"(job {in_flight.id}); pick another target"
+        )
+
+    if node.last_harvest_at is not None:
+        elapsed = timezone.now() - node.last_harvest_at
+        if elapsed < COOLDOWN:
+            minutes = int((COOLDOWN - elapsed).total_seconds() // 60) + 1
+            raise ValueError(
+                f"node {node.id} was harvested {int(elapsed.total_seconds() // 60)} minutes "
+                f"ago; it is available again in {minutes} minutes"
+            )
+
+
+def record_harvest(job: HarvestJob, *, items_new: int, counts_as_evidence: bool = True) -> None:
+    """
+    Feed a finished run back into the scoreboard the agent reads.
+
+    Args:
+        job (HarvestJob): The finished job. A job with no node — a manual or seeded one —
+            is ignored.
+        items_new (int): Observations created, after deduplication.
+        counts_as_evidence (bool): False when the Actor looked broken. A run that returned
+            nothing because the scraper is down must not count as a pass, or the frontier
+            learns that a place is quiet when what is quiet is the tool.
+
+    Note:
+        The yield denominator is *new* posts, not returned ones. Re-harvesting a place gives
+        back the same posts, and counting them again would collapse the yield of exactly the
+        targets worth revisiting.
+    """
+    node = job.node
+    if node is None:
+        return
+
+    node.last_harvest_at = timezone.now()
+    fields = ["last_harvest_at", "updated_at"]
+
+    if counts_as_evidence:
+        node.passes += 1
+        node.total_items += items_new
+        node.observed_cost_usd += job.actual_cost_usd
+        node.refresh_yield_rate()
+        fields += ["passes", "total_items", "observed_cost_usd", "yield_rate"]
+
+    node.save(update_fields=fields)
+
+
+def record_actionable_find(observation: Observation, count: int) -> None:
+    """
+    Credit the target that produced actionable content.
+
+    Args:
+        observation (Observation): The post that yielded requirements.
+        count (int): How many it produced.
+
+    Note:
+        This is the other half of `yield_rate`, and it arrives much later than the harvest
+        that earned it — the post has to be extracted, geocoded and ingested first. That lag
+        is why the number is a running total on the node rather than something derived per
+        run: at the moment a run finishes, nobody knows yet whether it found anything.
+    """
+    if count <= 0 or observation.job_id is None:
+        return
+
+    node = FrontierNode.objects.filter(jobs__observations=observation).first()
+    if node is None:
+        return
+
+    with transaction.atomic():
+        locked = FrontierNode.objects.select_for_update().get(pk=node.pk)
+        locked.actionable_items += count
+        locked.last_useful_find_at = timezone.now()
+        locked.refresh_yield_rate()
+        locked.save(update_fields=["actionable_items", "last_useful_find_at", "yield_rate"])
