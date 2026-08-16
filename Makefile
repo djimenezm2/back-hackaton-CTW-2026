@@ -25,7 +25,8 @@ MARKERS = $(if $(LIVE),-m "",)
 
 .DEFAULT_GOAL := help
 .PHONY: help init up down restart ps logs build rebuild \
-        check lint format types test migrate migrations shell run superuser seed unseed eval pipeline worker
+        check lint format types test migrate migrations shell run superuser apikey \
+        seed unseed eval pipeline worker
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*##"; printf "Available commands:\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  make %-22s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -98,3 +99,6 @@ run: ## Development server
 
 superuser: ## Create an admin user
 	$(MANAGE) createsuperuser
+
+apikey: ## Mint an API key into .env. ARGS="--replace" drops the existing ones
+	$(MANAGE) apikey $(ARGS)
