@@ -7,14 +7,13 @@ is useful, matching it to a whole coffee-growing region is a lie dressed as a co
 every result carries the precision Google reported, and callers enforce a minimum.
 """
 
-import unicodedata
-
 import requests
 from django.conf import settings
 from django.contrib.gis.geos import Point
 
 from ayudagente.radar.choices import GeocodeSource, LocationPrecision
 from ayudagente.radar.models import Event, Location
+from ayudagente.radar.services.text import normalize
 
 GOOGLE_ENDPOINT = "https://maps.googleapis.com/maps/api/geocode/json"
 
@@ -32,22 +31,6 @@ PRECISION_BY_TYPE = (
     ("administrative_area_level_1", LocationPrecision.ADMIN_1),
     ("country", LocationPrecision.COUNTRY),
 )
-
-
-def normalize(text: str) -> str:
-    """
-    Reduce a place string to a stable cache key.
-
-    Args:
-        text (str): The query as the model wrote it.
-
-    Returns:
-        str: Lowercased, unaccented and whitespace-collapsed, so "Quibdó" and "quibdo" are
-            one cache entry rather than two calls.
-    """
-    stripped = unicodedata.normalize("NFKD", text.strip().casefold())
-    without_accents = "".join(char for char in stripped if not unicodedata.combining(char))
-    return " ".join(without_accents.split())
 
 
 class Geocoder:

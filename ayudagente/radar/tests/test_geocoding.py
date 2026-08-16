@@ -11,7 +11,8 @@ import pytest
 
 from ayudagente.radar.choices import GeocodeSource, LocationPrecision
 from ayudagente.radar.models import Event, Location
-from ayudagente.radar.services.geocoding import Geocoder, normalize
+from ayudagente.radar.services.geocoding import Geocoder
+from ayudagente.radar.services.text import normalize
 
 
 def result(types, location_type="APPROXIMATE", partial=False):

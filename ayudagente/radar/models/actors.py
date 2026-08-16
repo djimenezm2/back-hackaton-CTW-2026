@@ -21,6 +21,7 @@ from ayudagente.radar.choices import (
     ResolutionMethod,
     UnreachableReason,
 )
+from ayudagente.radar.models.catalog import AdminUnit
 
 # Actor kinds that count as organizations. Query with `kind__in=ORGANIZATION_KINDS`.
 ORGANIZATION_KINDS = frozenset(
@@ -83,7 +84,7 @@ class Location(models.Model):
     raw_text = models.CharField(max_length=300)
     text_norm = models.CharField(max_length=300, db_index=True)
     admin_unit = models.ForeignKey(
-        "radar.AdminUnit",
+        AdminUnit,
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
