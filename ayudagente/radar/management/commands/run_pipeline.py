@@ -7,6 +7,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import connections
 
 from ayudagente.radar.models import Event
+from ayudagente.radar.services import refresh_graph
 from ayudagente.radar.tasks import (
     extraction_cost_estimate,
     pending_observations,
@@ -70,7 +71,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(f"queued {len(ids)} observations"))
             return
 
-        self._run_inline(ids, options)
+        self._run_inline(event, ids, options)
 
     def _event(self, event_id: int | None) -> Event:
         """Resolve the event, defaulting to the only active one."""
@@ -102,7 +103,7 @@ class Command(BaseCommand):
         answer = input(f"read {count} observations? [y/N] ").strip().casefold()
         return answer in {"y", "yes"}
 
-    def _run_inline(self, ids: list[int], options: dict) -> None:
+    def _run_inline(self, event: Event, ids: list[int], options: dict) -> None:
         """
         Process here, several at a time.
 
@@ -143,4 +144,21 @@ class Command(BaseCommand):
                 f"\n{totals['requirements']} requirements created, "
                 f"{totals['dropped']} items dropped, {totals['failed']} observations failed"
             )
+        )
+        self._rebuild_graph(event)
+
+    def _rebuild_graph(self, event: Event) -> None:
+        """
+        Rebuild the graph before returning, because this run just invalidated it.
+
+        Note:
+            An inline run is the one path that knows it changed everything and has nobody to
+            tell. It writes requirements without a worker to pick up the rebuild, so leaving
+            it queued means the first reader pays for it — or, when no worker exists at all,
+            that the graph stays behind until somebody notices.
+        """
+        snapshot, _rebuilt = refresh_graph(event.pk, force=True)
+        self.stdout.write(
+            f"graph: {len(snapshot.payload['nodes'])} nodes, "
+            f"{len(snapshot.payload['edges'])} matches proposed"
         )

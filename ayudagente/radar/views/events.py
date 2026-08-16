@@ -53,10 +53,16 @@ def event_graph(request, event_id: int):
         `built_at` travels with it. Without it the frontend cannot tell a graph rebuilt a
         second ago from one whose rebuild trigger has been failing since midnight, and a
         stale map that looks live is worse than one that admits its age.
+
+        A snapshot marked `stale` is rebuilt here rather than served. This used to rebuild
+        only when none existed at all, which meant that once one was written it was served
+        forever — an event reported 803 requirements in its summary and none in its graph,
+        and neither endpoint was wrong by its own logic. The read path now closes the loop it
+        used to delegate to a worker that a deployment may deliberately not run.
     """
     event = get_object_or_404(Event, id=event_id)
     snapshot = GraphSnapshot.objects.filter(event=event).first()
-    if snapshot is None:
+    if snapshot is None or snapshot.stale:
         snapshot, _rebuilt = refresh_graph(event.id)
     return JsonResponse({**snapshot.payload, "built_at": snapshot.built_at.isoformat()})
 

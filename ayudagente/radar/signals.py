@@ -46,14 +46,28 @@ def _schedule_rebuild(event_id: int | None) -> None:
             return
 
     def enqueue() -> None:
+        """
+        Mark the snapshot behind, then ask for a rebuild.
+
+        Note:
+            The order matters and the two are not the same act. Marking is synchronous and
+            cannot fail; rebuilding is expensive and goes to a queue that a deployment may
+            deliberately have no consumer for. Before the split, a broker with no worker meant
+            nothing recorded that the graph was behind — and the read path, which rebuilt only
+            when no snapshot existed, then served the stale one forever.
+        """
+        from ayudagente.radar.models import GraphSnapshot
         from ayudagente.radar.tasks import rebuild_graph
+
+        # Marked in the database first: one UPDATE, and it cannot fail
+        GraphSnapshot.objects.filter(event_id=event_id).update(stale=True)
 
         try:
             rebuild_graph.delay(event_id)  # type: ignore[attr-defined]  # celery stubs
-        except Exception:  # broker down (local shell without redis) — reads self-heal
-            logger.warning(
-                "could not queue graph rebuild for event %s (is Redis/Celery up?); "
-                "the snapshot will refresh on the next build_graph or first fetch",
+        except Exception:  # broker down, or a deployment that runs no worker on purpose
+            logger.info(
+                "no worker to rebuild the graph for event %s; it is marked stale and the "
+                "next read will rebuild it inline",
                 event_id,
             )
 

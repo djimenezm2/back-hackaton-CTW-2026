@@ -12,6 +12,16 @@ class GraphSnapshot(models.Model):
     match updates) trigger a rebuild through signals, and reads are a single row.
 
     Note:
+        `stale` is what separates *knowing* the graph is behind from *doing* something about
+        it. Marking is one UPDATE, synchronous, and cannot fail; rebuilding is expensive and
+        may be queued. Before this the two were the same act, so when the queue had no
+        consumer nothing marked the snapshot either — and the read path, which only rebuilt
+        when no snapshot existed at all, served a stale one forever.
+
+        That is the failure it exists to prevent: an event whose summary reported 803
+        requirements while its graph reported none, with neither endpoint wrong by its own
+        logic.
+
         `input_fingerprint` is what makes the trigger cheap to over-fire. It hashes the
         graph's inputs, so a rebuild request that finds the stored fingerprint unchanged
         does nothing. Fifty redundant triggers cost fifty hash comparisons, not fifty
@@ -24,6 +34,7 @@ class GraphSnapshot(models.Model):
     )
     payload = models.JSONField()
     input_fingerprint = models.CharField(max_length=64)
+    stale = models.BooleanField(default=False)
     built_at = models.DateTimeField(auto_now=True)
 
     def __str__(self) -> str:

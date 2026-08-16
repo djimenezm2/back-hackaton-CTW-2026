@@ -172,6 +172,9 @@ def refresh_graph(event_id: int, force: bool = False) -> tuple[GraphSnapshot, bo
 
     snapshot = GraphSnapshot.objects.filter(event=event).first()
     if snapshot is not None and not force and snapshot.input_fingerprint == fingerprint:
+        if snapshot.stale:
+            snapshot.stale = False
+            snapshot.save(update_fields=["stale"])
         return snapshot, False
 
     token = rebuilding.set(True)
@@ -185,7 +188,7 @@ def refresh_graph(event_id: int, force: bool = False) -> tuple[GraphSnapshot, bo
 
     snapshot, _created = GraphSnapshot.objects.update_or_create(
         event=event,
-        defaults={"payload": payload, "input_fingerprint": fingerprint},
+        defaults={"payload": payload, "input_fingerprint": fingerprint, "stale": False},
     )
     return snapshot, True
 

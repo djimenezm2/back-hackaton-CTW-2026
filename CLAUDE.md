@@ -212,6 +212,23 @@ requirement could ever have two pieces of evidence.
 Merging fixes three things at once: the graph shrinks, `covered_quantity` starts meaning
 something, and the only automatic route out of quarantine becomes reachable.
 
+## Marking the graph behind is not the same act as rebuilding it
+
+The graph is served from `GraphSnapshot`. Writes mark it `stale` with one synchronous UPDATE
+that cannot fail, and *then* ask a worker to rebuild. Whoever reads next rebuilds it inline if
+nothing did.
+
+The two used to be one act, and the failure had no error in it: an event reported 803
+requirements through its summary and none through its graph, because the summary counts rows
+while the graph served a cache that only rebuilt when no cache existed at all. The rebuild had
+been delegated to a worker the deployment deliberately did not run, so nothing rebuilt it and
+nothing recorded that it needed rebuilding. Neither endpoint was wrong by its own logic.
+
+**A correctness guarantee may not live only in a process that might not be running.** The
+worker makes the rebuild timely; it must never be what makes it happen at all. The same holds
+for the inline pipeline, which rebuilds before it returns because it is the one path that knows
+it changed everything and has nobody to tell.
+
 ## Matching runs on an in-memory graph
 
 Postgres is the source of truth; the matching pass loads open requirements into NetworkX,
