@@ -18,6 +18,8 @@ ENV PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
     PATH="/app/.venv/bin:$PATH"
 
+ENV UV_CONCURRENT_INSTALLS=8
+
 WORKDIR /app
 
 # Resolved from the lock alone, so a source-only change reuses this layer
