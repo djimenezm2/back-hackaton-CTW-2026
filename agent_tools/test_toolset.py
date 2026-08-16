@@ -191,14 +191,22 @@ class ActorContactsToolTests(TestCase):
             actor=self.actor, kind=kind, value=value, raw_value=value, **kwargs
         )
 
-    def test_the_contact_value_never_reaches_the_model(self):
+    def test_the_contact_value_reaches_the_model(self):
+        # The reader is a member of the public: a fact about a phone is not a phone
         self._contact(ContactKind.EMAIL, "ong@pereira.org")
 
         row = get_actor_contacts.invoke({"actor_id": self.actor.id})["contacts"][0]
 
-        self.assertNotIn("value", row)
-        self.assertNotIn("ong@pereira.org", str(row))
+        self.assertEqual(row["value"], "ong@pereira.org")
         self.assertIn("contact_point_id", row)  # the id is what other tools take
+
+    def test_how_trustworthy_a_detail_is_travels_with_it(self):
+        self._contact(ContactKind.PHONE, "+573001112233", times_seen=1)
+
+        row = get_actor_contacts.invoke({"actor_id": self.actor.id})["contacts"][0]
+
+        self.assertEqual(row["times_seen"], 1)
+        self.assertFalse(row["verified"])
 
     def test_channels_come_back_in_preference_order(self):
         self._contact(ContactKind.PHONE, "+573001112233")

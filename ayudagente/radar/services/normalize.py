@@ -261,11 +261,79 @@ def _normalize_tiktok_comment(item: dict) -> tuple[dict, list[dict]]:
     return fields, []
 
 
+def _normalize_instagram_comment(item: dict) -> tuple[dict, list[dict]]:
+    """
+    Map an Instagram comment.
+
+    Note:
+        `postUrl` is the thread. A comment has no page of its own on Instagram either, so
+        `commentUrl` is used when the Actor supplies one and the post URL stands in when not.
+    """
+    post_url = item.get("postUrl") or item.get("inputUrl", "")
+    owner = item.get("owner") or {}
+    return {
+        "platform_id": str(item.get("id", "")),
+        "permalink": item.get("commentUrl") or post_url,
+        "text": item.get("text", "") or "",
+        "author_handle": item.get("ownerUsername", "") or owner.get("username", "") or "",
+        "author_platform_id": str(owner.get("id", "") or ""),
+        "author_avatar_url": item.get("ownerProfilePicUrl", "") or "",
+        "author_verified": owner.get("is_verified"),
+        "thread_id": post_url,
+        "is_reply": False,
+        "metrics": {"likes": item.get("likesCount", 0) or 0},
+        "posted_at": parse_timestamp(item.get("timestamp")),
+    }, []
+
+
+def _normalize_facebook_comment(item: dict) -> tuple[dict, list[dict]]:
+    """
+    Map a Facebook comment.
+
+    Note:
+        `likesCount` arrives as a string and `replyToCommentId` is what marks a reply to a
+        reply — Facebook nests three levels deep, and a reply read as a top-level comment
+        loses the question it was answering.
+    """
+    author = item.get("author") or {}
+    return {
+        "platform_id": str(item.get("commentId") or item.get("id", "")),
+        "permalink": item.get("commentUrl", "") or item.get("facebookUrl", ""),
+        "text": item.get("text", "") or "",
+        "author_handle": item.get("profileName", "") or author.get("name", "") or "",
+        "author_name": item.get("profileName", "") or author.get("name", "") or "",
+        "author_platform_id": str(item.get("profileId", "") or ""),
+        "author_avatar_url": item.get("profilePicture", "") or "",
+        "author_verified": author.get("is_verified"),
+        "thread_id": item.get("facebookUrl", "") or item.get("inputUrl", ""),
+        "reply_to_id": str(item.get("replyToCommentId", "") or ""),
+        "is_reply": bool(item.get("replyToCommentId")),
+        "metrics": {"likes": _as_int(item.get("likesCount"))},
+        "posted_at": parse_timestamp(item.get("date")),
+    }, []
+
+
+def _as_int(value) -> int:
+    """A count the platform sent as a string, or zero when it sent nothing usable."""
+    try:
+        return int(str(value).replace(",", "").strip() or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 NORMALIZERS = {
     Platform.X: _normalize_x,
     Platform.INSTAGRAM: _normalize_instagram,
     Platform.FACEBOOK: _normalize_facebook,
     Platform.TIKTOK: _normalize_tiktok,
+}
+
+# A reply on X *is* a tweet, so it needs no mapping of its own
+COMMENT_NORMALIZERS = {
+    Platform.X: _normalize_x,
+    Platform.INSTAGRAM: _normalize_instagram_comment,
+    Platform.FACEBOOK: _normalize_facebook_comment,
+    Platform.TIKTOK: _normalize_tiktok_comment,
 }
 
 
@@ -286,11 +354,8 @@ def normalize(platform: str, item: dict, *, is_comment: bool = False) -> tuple[d
     Raises:
         ValueError: If the platform has no mapping.
     """
-    if is_comment:
-        if platform != Platform.TIKTOK:
-            raise ValueError(f"no comment mapping for platform {platform!r}")
-        return _normalize_tiktok_comment(item)
+    table = COMMENT_NORMALIZERS if is_comment else NORMALIZERS
     try:
-        return NORMALIZERS[Platform(platform)](item)
+        return table[Platform(platform)](item)
     except KeyError as exc:
         raise ValueError(f"no mapping for platform {platform!r}") from exc

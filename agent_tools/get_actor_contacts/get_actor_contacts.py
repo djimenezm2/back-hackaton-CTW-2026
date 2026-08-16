@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from agent_tools.shared import failure
 from ayudagente.radar.services import get_actor, get_contact_points
+from ayudagente.radar.services.outreach import contact_link
 
 
 class GetActorContactsInput(BaseModel):
@@ -35,13 +36,25 @@ class GetActorContactsInput(BaseModel):
 
 def serialize(contact) -> dict:
     """
-    Describe a channel without revealing it.
+    Describe a channel, including how to use it.
 
     Returns:
-        dict: `contact_point_id` is what other tools accept; `value` is deliberately absent.
+        dict: `contact_point_id` is what other tools accept; `value` is the detail itself.
+
+    Note:
+        The value used to be withheld. That was right when the reader was assumed to be
+        operating the system — it never needed the digits, because the system built the link.
+        The reader is a member of the public, and somebody about to drive across a city to a
+        collection point needs to call it first. Withholding the number made the answer
+        useless while sounding careful.
+
+        What protects it is the API key and the fact that the person published it themselves,
+        in a post asking for help.
     """
     row = {
         "contact_point_id": contact.id,
+        "value": contact.value,
+        "link": contact_link(contact),
         "kind": contact.kind,
         "reachable": contact.reachable,
         "verified": contact.verified,
@@ -67,7 +80,9 @@ def get_actor_contacts(actor_id: int, include_unusable: bool = False) -> dict:
     Call this before drafting a message, to pick a channel and to learn whether one exists
     at all — plenty of posts name a place without naming any way to contact it.
 
-    Contact values are never returned. Use `contact_point_id` with `draft_outreach`, which
+    Values are returned: read them out when someone asks how to reach a place, and say when
+    `times_seen` is 1, because a detail seen once is the likeliest to be wrong. Use
+    `contact_point_id` with `draft_outreach`, which
     reads the address itself. `preference_rank` orders least intrusive first; the first row
     is the one to use unless you have a reason not to.
 

@@ -128,10 +128,11 @@ class QueueTests(CommentsBase):
     def test_nothing_to_read_queues_nothing(self):
         self.assertEqual(queue_comment_pulls(self.event), 0)
 
-    def test_a_platform_with_no_proven_comments_actor_is_left_alone(self):
-        self._post("1", platform=Platform.FACEBOOK)
+    def test_every_platform_gets_its_own_pull(self):
+        for platform in Platform.values:
+            self._post(f"{platform}-1", platform=platform)
 
-        self.assertEqual(queue_comment_pulls(self.event), 0)
+        self.assertEqual(queue_comment_pulls(self.event), len(Platform.values))
 
     def test_the_job_is_marked_as_a_comment_pull_so_the_right_normalizer_runs(self):
         self._post("1")
@@ -154,7 +155,30 @@ class InputTests(TestCase):
         with self.assertRaises(ValueError):
             build_comment_input(Platform.TIKTOK, [])
 
-    def test_a_platform_without_a_proven_actor_is_refused(self):
-        # A comment stored through the wrong normalizer is worse than one not stored
-        with self.assertRaises(ValueError):
-            build_comment_input(Platform.FACEBOOK, ["https://facebook.com/1"])
+    def test_each_platform_gets_the_field_names_its_actor_declares(self):
+        links = ["https://example.com/p/1"]
+        expected = {
+            Platform.X: "searchTerms",
+            Platform.INSTAGRAM: "directUrls",
+            Platform.FACEBOOK: "startUrls",
+            Platform.TIKTOK: "postURLs",
+        }
+
+        for platform, field in expected.items():
+            with self.subTest(platform=platform):
+                self.assertIn(field, build_comment_input(platform, links))
+
+    def test_x_asks_for_one_thread_per_post_rather_than_batching(self):
+        # Batching with OR would merge the threads and lose which post each reply hung under
+        payload = build_comment_input(
+            Platform.X,
+            ["https://x.com/a/status/111", "https://x.com/b/status/222"],
+        )
+
+        self.assertEqual(payload["searchTerms"], ["conversation_id:111", "conversation_id:222"])
+
+    def test_facebook_wraps_each_link_the_way_its_actor_wants(self):
+        payload = build_comment_input(Platform.FACEBOOK, ["https://facebook.com/1"])
+
+        self.assertEqual(payload["startUrls"], [{"url": "https://facebook.com/1"}])
+        self.assertFalse(payload["includeNestedComments"])

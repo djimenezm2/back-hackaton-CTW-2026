@@ -13,7 +13,13 @@ from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
 
-from ayudagente.radar.choices import Direction, ExtractionClass, RequirementStatus, Urgency
+from ayudagente.radar.choices import (
+    ContactKind,
+    Direction,
+    ExtractionClass,
+    RequirementStatus,
+    Urgency,
+)
 from ayudagente.radar.models import (
     ContactPoint,
     Extraction,
@@ -176,6 +182,8 @@ class Ingestor:
             item.actor, observation, contacts=item.contacts, location=location
         )
         self._record_contacts(item.contacts, resolution.actor, observation)
+        if item.actor.is_author:
+            self._record_author_handle(resolution.actor, observation)
 
         resource = self._resource(item.resource_key, item.resource)
         existing = self._already_known(observation, resolution.actor, resource, item)
@@ -288,6 +296,41 @@ class Ingestor:
             so an unparented need is one nobody is ever proposed to fill.
         """
         return resolve_resource(key, label, use_llm=self.resolve_resources).resource
+
+    def _record_author_handle(self, actor, observation: Observation) -> None:
+        """
+        Store the account that posted as a way to reach the actor it speaks for.
+
+        Note:
+            The most reliable contact in the system, and it used to be thrown away. A phone
+            number in a caption is something the model read; the posting handle is something
+            the platform stated, and it is how most people asking for help can be reached —
+            plenty give a username and no number at all.
+
+            Only when the model read the actor as the author. A handle taken from a post
+            *about* somebody else reaches the wrong person, which during an emergency is worse
+            than reaching nobody.
+        """
+        handle = (observation.author_handle or "").strip().lstrip("@")
+        if not handle or not observation.platform:
+            return
+
+        point, created = ContactPoint.objects.get_or_create(
+            actor=actor,
+            kind=ContactKind.HANDLE,
+            value=handle[:300],
+            defaults={
+                "raw_value": observation.author_handle[:300],
+                "platform": observation.platform,
+                "discovered_in": observation,
+                "verified": bool(observation.author_verified),
+                "confidence": 0.9,
+            },
+        )
+        if not created:
+            point.times_seen += 1
+            point.confidence = min(1.0, 0.5 + 0.1 * point.times_seen)
+            point.save(update_fields=["times_seen", "confidence"])
 
     def _record_contacts(
         self, contacts: list[ExtractedContact], actor, observation: Observation

@@ -10,6 +10,7 @@ from ayudagente.radar.choices import (
     ContactKind,
     OutreachChannel,
     OutreachPurpose,
+    Platform,
     UnreachableReason,
 )
 from ayudagente.radar.models import ContactPoint, Match, Observation, Outreach, Requirement
@@ -45,6 +46,48 @@ def match_participants(match: Match) -> set[int]:
     return actors
 
 
+PROFILE_URL_BY_PLATFORM = {
+    Platform.X: "https://x.com/{handle}",
+    Platform.INSTAGRAM: "https://instagram.com/{handle}",
+    Platform.FACEBOOK: "https://facebook.com/{handle}",
+    Platform.TIKTOK: "https://tiktok.com/@{handle}",
+}
+
+
+def contact_link(contact_point: ContactPoint) -> str:
+    """
+    The clickable form of a contact detail, whatever kind it is.
+
+    Args:
+        contact_point (ContactPoint): The detail to turn into something tappable.
+
+    Returns:
+        str: A link a phone will act on, or empty when the kind has none — a payment account
+            and a street address are read, not opened.
+
+    Note:
+        Separate from `build_target_url`, which prefills a drafted message. This one carries no
+        text: it is what someone asking "how do I reach them" needs, and it exists for the
+        kinds that a drafted message cannot use — a phone to dial, a profile to look at.
+    """
+    value = contact_point.value.strip()
+    if not value:
+        return ""
+
+    if contact_point.kind == ContactKind.EMAIL:
+        return f"mailto:{value}"
+    if contact_point.kind == ContactKind.WHATSAPP:
+        return f"https://wa.me/{value.lstrip('+')}"
+    if contact_point.kind == ContactKind.PHONE:
+        return f"tel:{value}"
+    if contact_point.kind in (ContactKind.WEBSITE, ContactKind.FORM):
+        return value if value.startswith("http") else f"https://{value}"
+    if contact_point.kind == ContactKind.HANDLE and contact_point.platform:
+        template = PROFILE_URL_BY_PLATFORM.get(Platform(contact_point.platform), "")
+        return template.format(handle=value.lstrip("@")) if template else ""
+    return ""
+
+
 def build_target_url(
     contact_point: ContactPoint,
     body: str,
@@ -63,11 +106,20 @@ def build_target_url(
     Returns:
         str: A deep link needing no API, credentials or app review. Falls back to the
             observation's permalink for channels that cannot be prefilled.
+
+    Note:
+        A phone becomes `tel:`, which carries no text but opens the dialler. Someone about to
+        drive across a city to a collection point wants to call it first, and returning no
+        link at all told them there was no way to reach a number we were holding.
     """
     if contact_point.kind == ContactKind.EMAIL:
         return Outreach.build_mailto_url(contact_point.value, subject, body)
     if contact_point.kind == ContactKind.WHATSAPP:
         return Outreach.build_whatsapp_url(contact_point.value, body)
+    if contact_point.kind == ContactKind.PHONE:
+        return f"tel:{contact_point.value}"
+    if contact_point.kind == ContactKind.WEBSITE:
+        return contact_point.value
     return in_reply_to.permalink if in_reply_to else ""
 
 

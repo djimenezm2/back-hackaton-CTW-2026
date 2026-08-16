@@ -37,8 +37,11 @@ APIFY_ACTOR_BY_PLATFORM = {
     Platform.TIKTOK: "clockworks/tiktok-scraper",
 }
 
-# One Actor per platform for pulling the replies under a post. Only TikTok is proven.
+# One Actor per platform for pulling the replies under a post
 COMMENT_ACTOR_BY_PLATFORM = {
+    Platform.X: "kaitoeasyapi/twitter-x-data-tweet-scraper-pay-per-result-cheapest",
+    Platform.INSTAGRAM: "apify/instagram-comment-scraper",
+    Platform.FACEBOOK: "apify/facebook-comments-scraper",
     Platform.TIKTOK: "clockworks/tiktok-comments-scraper",
 }
 
@@ -148,10 +151,60 @@ def build_comment_input(platform: str, permalinks: list[str], limit: int = 100) 
     if not permalinks:
         raise ValueError("a comment pull needs at least one post to read")
 
-    actor = COMMENT_ACTOR_BY_PLATFORM.get(Platform(platform))
-    if actor is None:
-        raise ValueError(f"no comments Actor proven for platform {platform!r}")
+    if Platform(platform) not in COMMENT_ACTOR_BY_PLATFORM:
+        raise ValueError(f"no comments Actor configured for platform {platform!r}")
 
+    builders = {
+        Platform.X: _replies_on_x,
+        Platform.INSTAGRAM: _comments_on_instagram,
+        Platform.FACEBOOK: _comments_on_facebook,
+        Platform.TIKTOK: _comments_on_tiktok,
+    }
+    return builders[Platform(platform)](permalinks, limit)
+
+
+def _replies_on_x(permalinks: list[str], limit: int) -> dict:
+    """
+    Replies on X, which are fetched as a search rather than by a comments Actor.
+
+    Note:
+        A reply on X *is* a tweet, so the same scraper and the same normalizer serve. The
+        `conversation_id:` operator returns the whole thread, which is why one search term per
+        post is right here even though the sweep batches with OR — batching would merge the
+        threads and lose which post each reply hung under.
+    """
+    ids = [link.rstrip("/").split("/")[-1].split("?")[0] for link in permalinks]
+    return {
+        "searchTerms": [f"conversation_id:{tweet_id}" for tweet_id in ids if tweet_id],
+        "maxItems": max(limit, MIN_ITEMS_PER_TERM),
+        "queryType": "Latest",
+    }
+
+
+def _comments_on_instagram(permalinks: list[str], limit: int) -> dict:
+    """Comments on an Instagram post or reel."""
+    return {"directUrls": permalinks, "resultsLimit": limit, "includeNestedComments": False}
+
+
+def _comments_on_facebook(permalinks: list[str], limit: int) -> dict:
+    """
+    Comments on a Facebook post.
+
+    Note:
+        Nested comments are off. Facebook threads three levels deep and each level arrives as
+        its own row, so turning it on multiplies the bill for replies to replies — which are
+        further from the person asking for help, not closer.
+    """
+    return {
+        "startUrls": [{"url": link} for link in permalinks],
+        "resultsLimit": limit,
+        "includeNestedComments": False,
+        "viewOption": "RANKED_UNFILTERED",
+    }
+
+
+def _comments_on_tiktok(permalinks: list[str], limit: int) -> dict:
+    """Comments on a TikTok video."""
     return {"postURLs": permalinks, "commentsPerPost": limit, "maxRepliesPerComment": 0}
 
 

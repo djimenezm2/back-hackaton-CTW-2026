@@ -84,6 +84,10 @@ def _serialize(requirement, network: Network, origin) -> dict:
         of the public, not somebody reviewing a dashboard. They read one sentence and act on
         it, so the answer has to be able to say "nobody has confirmed this yet" — and it can
         only say that if the row carries it.
+
+        `source_post` is the same idea taken to its end: the strongest thing to hand someone
+        who has to judge an unconfirmed claim is the post it came from, so they can read it
+        themselves.
     """
     location = requirement.location
     still = network.still_needed(requirement)
@@ -105,6 +109,13 @@ def _serialize(requirement, network: Network, origin) -> dict:
         "sources": requirement.evidence.count(),
         "actor_verified": requirement.actor.verified,
     }
+
+    evidence = requirement.evidence.first()
+    if evidence is not None:
+        row["source_post"] = evidence.permalink
+        row["source_platform"] = evidence.platform
+        if evidence.author_handle:
+            row["source_author"] = evidence.author_handle
     if requirement.free_text:
         row["note"] = requirement.free_text[:NOTE_CHARS]
 
