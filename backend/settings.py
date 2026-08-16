@@ -132,6 +132,9 @@ CELERY_TASK_ACKS_LATE = True
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_TIME_LIMIT = 600
 
+# The pool size is the real governor; this only stops a burst from tripping the model's quota
+EXTRACTION_RATE_LIMIT = os.environ.get("EXTRACTION_RATE_LIMIT", "240/m")
+
 # One beat drives the whole perpetual loop; the pacing rules decide what it actually does
 CELERY_BEAT_SCHEDULE = {
     "radar-tick": {

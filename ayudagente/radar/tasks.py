@@ -16,12 +16,18 @@ Note:
     Rate limits are retried by the task rather than waited on inside the SDK. A wait long
     enough to clear a minute-scale quota would hold a worker idle, and the queue can hold
     the work for nothing instead.
+
+    The reading throttle is `EXTRACTION_RATE_LIMIT`, and it is a guard rather than the pace.
+    The pool size sets the pace: eight slots at 1.7 seconds a call is about 280 posts a minute,
+    and a throttle below that leaves the pool idle in front of a full queue — which is exactly
+    what 60/m did, holding two slots busy out of eight while 1244 posts waited.
 """
 
 import logging
 from uuid import uuid4
 
 from celery import shared_task
+from django.conf import settings
 from django.db import transaction
 from openai import APIError, BadRequestError, RateLimitError
 
@@ -59,7 +65,7 @@ ROUND_PROMPT = (
     retry_backoff_max=300,
     retry_jitter=True,
     max_retries=5,
-    rate_limit="60/m",
+    rate_limit=settings.EXTRACTION_RATE_LIMIT,
 )
 def process_observation(self, observation_id: int, *, force: bool = False) -> dict:
     """

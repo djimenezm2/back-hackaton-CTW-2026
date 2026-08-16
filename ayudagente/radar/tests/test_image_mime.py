@@ -10,6 +10,7 @@ so every case here is about trusting the header instead.
 from pathlib import Path
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import TestCase
 from openai import BadRequestError, RateLimitError
 
@@ -79,3 +80,11 @@ class RetryPolicyTests(TestCase):
 
     def test_a_rate_limit_is_still_retried(self):
         self.assertIn(RateLimitError, process_observation.autoretry_for)
+
+    def test_the_reading_throttle_comes_from_the_environment(self):
+        self.assertEqual(process_observation.rate_limit, settings.EXTRACTION_RATE_LIMIT)
+
+    def test_the_throttle_leaves_room_for_the_whole_pool(self):
+        per_minute = int(settings.EXTRACTION_RATE_LIMIT.removesuffix("/m"))
+
+        self.assertGreaterEqual(per_minute, 240)  # eight slots at ~1.7s a call
