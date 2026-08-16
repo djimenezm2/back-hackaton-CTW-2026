@@ -42,7 +42,7 @@ New apps go inside `ayudagente/` and register as `ayudagente.<name>` in `INSTALL
 Every observation walks the same fixed sequence: classify → extract → read image → build the
 geocoding string → geocode → resolve actor → match. Five of those steps call a model; the
 *order* is plain Python. Steps 1–4 are deliberately **one** multimodal call with a JSON schema,
-because Azure's per-deployment TPM quota is the real bottleneck and because the model resolves
+because the per-model rate limit is the real bottleneck and because the model resolves
 text-vs-image contradictions better when it sees both at once.
 
 An LLM agent runs in exactly two places:
@@ -55,7 +55,7 @@ An LLM agent runs in exactly two places:
 
 Do not turn pipeline steps into agents or subagents. They are high-volume and fixed, not
 open-ended, so a reasoning loop buys nothing and costs latency, money and determinism. The
-payoff of the fixed route is concrete: a 429 from Azure retries one task instead of corrupting
+payoff of the fixed route is concrete: a 429 from OpenAI retries one task instead of corrupting
 an agent's message history, 50 observations process in parallel under a concurrency cap, and a
 bad field is diagnosed by looking at one step's output rather than re-reading a trace.
 
@@ -163,7 +163,7 @@ def allows_automatic_outreach(self) -> bool:
 
 ### Tests
 
-Next to the code they cover. The default run is hermetic; anything reaching Postgres, Azure or
+Next to the code they cover. The default run is hermetic; anything reaching Postgres, OpenAI or
 Apify is marked `live` and excluded, so `make test LIVE=1` is the opt-in.
 
 ## Status
