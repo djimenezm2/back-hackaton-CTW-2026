@@ -35,6 +35,7 @@ from ayudagente.radar.services.matching import (
     propose_match,
     run_matching_pass,
 )
+from ayudagente.radar.services.media import download_pending
 from ayudagente.radar.services.outreach import draft_outreach, match_participants
 from ayudagente.radar.services.requirements import (
     find_admin_units,
@@ -57,6 +58,7 @@ __all__ = [
     "bootstrap_event",
     "build_graph_payload",
     "create_harvest_job",
+    "download_pending",
     "draft_outreach",
     "find_admin_units",
     "find_requirements",

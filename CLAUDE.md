@@ -10,13 +10,13 @@ for how the models relate. This file is the short version plus the rules that mu
 ## Commands
 
 ```bash
-make init                    # .venv, deps, .env from .env.example
-make up                      # Postgres (PostGIS + pgvector) and Redis
+make init                          # .venv, deps, .env from .env.example
+make up                            # Postgres (PostGIS + pgvector) and Redis
 make migrate
-make taxonomy                # resource catalog — reference data, every environment
-make gazetteer ARGS=CO       # a country's places — reference data, per country
-make start_event ARGS='...'  # open an emergency and queue its cold-start sweep
-make check                   # ruff + comment style + pyrefly + pytest
+uv run manage.py load_taxonomy     # resource catalog — every environment needs it
+uv run manage.py load_gazetteer CO # a country's places, per country
+uv run manage.py start_event ...   # open an emergency and queue its sweep
+make check                         # ruff + comment style + pyrefly + pytest
 ```
 
 `make seed` is **development only**: it loads the pilot corpus and the demo scenario. Anything

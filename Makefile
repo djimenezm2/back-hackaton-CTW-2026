@@ -25,11 +25,12 @@ MARKERS = $(if $(LIVE),-m "",)
 
 .DEFAULT_GOAL := help
 .PHONY: help init up down restart ps logs build rebuild \
-        check lint format comments types test migrate migrations shell run superuser apikey \
-        taxonomy gazetteer seed unseed eval harvest pipeline worker beat
+        check lint format comments types test migrate migrations run apikey seed unseed \
+        worker beat
 
 help: ## Show available commands
-	@awk 'BEGIN {FS = ":.*##"; printf "Available commands:\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  make %-22s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"; printf "Available commands:\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  make %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@echo ""; echo "Everything else is a Django command: uv run manage.py help"
 
 init: ## Create .venv, install deps and seed .env from .env.example
 	@test -f $(ENV_FILE) || { cp $(ENV_TEMPLATE) $(ENV_FILE) && echo "created $(ENV_FILE): fill in the secrets"; }
@@ -73,11 +74,7 @@ types: ## Pyrefly type check
 test: ## Run the suite (make test LIVE=1 to include tests that need real services)
 	$(UV) run pytest $(MARKERS) $(ARGS)
 
-taxonomy: ## Load the resource catalog. Reference data: every environment needs it
-	$(MANAGE) load_taxonomy
 
-gazetteer: ## Load a country's places from GeoNames (make gazetteer ARGS=CO)
-	$(MANAGE) load_gazetteer $(ARGS)
 
 seed: ## Load the development fixtures (pilot corpus, demo scenario). Never in production
 	$(MANAGE) seed $(ARGS)
@@ -85,11 +82,8 @@ seed: ## Load the development fixtures (pilot corpus, demo scenario). Never in p
 unseed: ## Delete the seed datasets
 	$(MANAGE) seed --clear $(ARGS)
 
-harvest: ## Run the harvest jobs the frontier queued (ARGS="--limit 3 --pipeline")
-	$(MANAGE) harvest $(ARGS)
 
-pipeline: ## Read an event's posts into requirements (ARGS="--limit 20")
-	$(MANAGE) run_pipeline $(ARGS)
+
 
 beat: ## Run the scheduler that drives the perpetual loop
 	$(UV) run celery -A backend beat -l info
@@ -97,8 +91,7 @@ beat: ## Run the scheduler that drives the perpetual loop
 worker: ## Run a Celery worker
 	$(UV) run celery -A backend worker -l info
 
-eval: ## Score the extraction prompt against real posts (calls the model)
-	$(MANAGE) eval_extraction $(ARGS)
+
 
 migrations: ## Generate migrations
 	$(MANAGE) makemigrations $(ARGS)
@@ -106,14 +99,11 @@ migrations: ## Generate migrations
 migrate: ## Apply migrations
 	$(MANAGE) migrate $(ARGS)
 
-shell: ## Django shell
-	$(MANAGE) shell
+
+apikey: ## Mint an API key into .env. ARGS="--replace" drops the existing ones
+	$(MANAGE) apikey $(ARGS)
 
 run: ## Development server
 	$(MANAGE) runserver $(ARGS)
 
-superuser: ## Create an admin user
-	$(MANAGE) createsuperuser
 
-apikey: ## Mint an API key into .env. ARGS="--replace" drops the existing ones
-	$(MANAGE) apikey $(ARGS)
