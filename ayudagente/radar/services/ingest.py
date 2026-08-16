@@ -24,6 +24,7 @@ from ayudagente.radar.models import (
 from ayudagente.radar.schemas import ExtractedContact, ExtractedItem, ExtractionResult
 from ayudagente.radar.services.geocoding import Geocoder
 from ayudagente.radar.services.identity import IdentityResolver
+from ayudagente.radar.services.resources import resolve_resource
 from ayudagente.radar.services.text import normalize
 
 # Nothing below this is worth putting in front of a person during an emergency.
@@ -65,10 +66,12 @@ class Ingestor:
         geocoder: Geocoder | None = None,
         resolver: IdentityResolver | None = None,
         min_confidence: float = MIN_ITEM_CONFIDENCE,
+        resolve_resources: bool = True,
     ):
         self.geocoder = geocoder or Geocoder()
         self.resolver = resolver or IdentityResolver()
         self.min_confidence = min_confidence
+        self.resolve_resources = resolve_resources
 
     @transaction.atomic
     def ingest(self, extraction: Extraction) -> Ingested:
@@ -176,7 +179,7 @@ class Ingestor:
             event=observation.event,
             actor=resolution.actor,
             direction=Direction.NEEDS if item.direction == "needs" else Direction.OFFERS,
-            resource=self._resource(item.resource_key),
+            resource=self._resource(item.resource_key, item.resource),
             free_text=item.resource[:300],
             quantity=item.quantity,
             unit=item.unit[:30],
@@ -189,23 +192,24 @@ class Ingestor:
         requirement.evidence.add(observation)
         return requirement
 
-    def _resource(self, key: str) -> ResourceType:
+    def _resource(self, key: str, label: str = "") -> ResourceType:
         """
-        Map a guessed key onto the taxonomy, inventing a leaf when it is unknown.
+        Map a guessed key onto the catalog, extending it when nothing fits.
 
         Args:
             key (str): The slug the model guessed.
+            label (str): The resource in the post's own words.
 
         Returns:
-            ResourceType: An existing type, or a new parentless one. A new leaf will not take
-                part in category fallback until someone gives it a parent, which is the honest
-                behaviour — a resource nobody classified cannot be substituted for another.
+            ResourceType: An existing type, or a new one placed under a real category.
+
+        Note:
+            The catalog is open by design — a flood asks for sandbags and a wildfire for
+            masks, and neither is in the seeded categories. What the resolution adds is that
+            a new arrival is *placed*: a resource with no parent only ever matches itself,
+            so an unparented need is one nobody is ever proposed to fill.
         """
-        slug = normalize(key).replace(" ", "_")[:60] or "unclassified"
-        resource, _ = ResourceType.objects.get_or_create(
-            key=slug, defaults={"name": key[:120] or "Sin clasificar"}
-        )
-        return resource
+        return resolve_resource(key, label, use_llm=self.resolve_resources).resource
 
     def _record_contacts(
         self, contacts: list[ExtractedContact], actor, observation: Observation

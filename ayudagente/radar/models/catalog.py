@@ -1,6 +1,7 @@
 """Stable catalogs: administrative geography and the resource taxonomy."""
 
 from django.contrib.gis.db import models as gis
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 from ayudagente.radar.choices import AdminLevel
@@ -61,10 +62,17 @@ class ResourceType(models.Model):
     Note:
         `perishable` constrains transport matching — a perishable resource requires a
         short delivery window.
+
+        `alternate_keys` is what stops the catalog from splitting. The extractor guesses a
+        slug per item and the guesses drift — "colchonetas" one day, "sleeping_mats" the
+        next — and each drift used to become its own island that matched nothing. Resolving
+        a drifted guess records it here, so the second post costs a lookup instead of a
+        model call, and the two never become two rows.
     """
 
     key = models.SlugField(max_length=60, unique=True)
     name = models.CharField(max_length=120)
+    alternate_keys = ArrayField(models.SlugField(max_length=60), default=list, blank=True)
     parent = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.PROTECT, related_name="children"
     )

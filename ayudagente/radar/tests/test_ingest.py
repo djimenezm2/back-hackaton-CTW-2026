@@ -76,6 +76,7 @@ def ingestor(somewhere):
     return Ingestor(
         geocoder=FixedGeocoder(somewhere),
         resolver=IdentityResolver(use_embeddings=False, use_llm=False),
+        resolve_resources=False,
     )
 
 
@@ -136,6 +137,7 @@ class TestRefusals:
         ingestor = Ingestor(
             geocoder=FixedGeocoder(None),
             resolver=IdentityResolver(use_embeddings=False, use_llm=False),
+            resolve_resources=False,
         )
         extraction = make_extraction(observation, [item("needs", "water")], geo="")
         assert ingestor.ingest(extraction).requirements == []

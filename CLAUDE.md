@@ -113,6 +113,28 @@ Deterministic keys → blocking by municipality → trigram similarity (`pg_trgm
 (`pgvector`) → LLM adjudication. **Embeddings are the fourth signal, not the first**:
 "Coliseo Mayor" and "Coliseo Menor" are nearly identical as vectors and are different places.
 
+The same cascade runs over `ResourceType` in `services/resources.py`, minus the embedding
+stage — an emergency produces dozens of distinct resources, not thousands of actors, so the
+layer would cost a vector column to save almost nothing. Every resolution is written back to
+`alternate_keys`, so a drifted guess costs one model call per emergency rather than one per
+post.
+
+## The resource catalog is open, and every arrival is placed
+
+A flood asks for sandbags and a wildfire for N95 masks; neither is in the seeded categories,
+so an unfamiliar key becomes a real resource rather than being dropped. What the seed provides
+is not the list but the **skeleton** — the categories a new arrival hangs from.
+
+That placement is the part that matters. `resource_family` is a resource plus its ancestors
+and descendants, so a resource created without a parent can only ever match itself: a need
+nobody will be proposed to fill, failing silently. New resources are therefore created under a
+parent the model chooses, never as roots.
+
+The catalog has already split once in production — `agua` beside `water`, `transporte` beside
+`transport`, four more — and the fix was a hand-written `LEGACY_KEYS` list. Those exact keys
+now resolve on trigram alone. Anything that writes `ResourceType` directly instead of going
+through `resolve_resource` reintroduces that split.
+
 ## Matching runs on an in-memory graph
 
 Postgres is the source of truth; the matching pass loads open requirements into NetworkX,

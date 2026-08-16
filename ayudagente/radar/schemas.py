@@ -151,3 +151,34 @@ class ActorMatchVerdict(BaseModel):
     same_entity: bool
     confidence: float = Field(ge=0.0, le=1.0)
     reason: str = Field(description="One sentence, so a bad merge can be diagnosed later.")
+
+
+class ResourceVerdict(BaseModel):
+    """
+    Where an unfamiliar resource belongs in the catalog.
+
+    Note:
+        Asked once per resource the cheap signals could not place, not once per post — the
+        answer is written back as an alias, so the second occurrence never reaches a model.
+
+        `parent_key` is required even when the resource is new, because a resource with no
+        parent can only ever be matched against itself. For a need that means nobody is ever
+        proposed to fill it, which is a silent failure rather than a visible one.
+    """
+
+    matches_key: str = Field(
+        default="",
+        description="An existing catalog key when this is the same kind of thing under "
+        "another name. Empty when it is genuinely new.",
+    )
+    parent_key: str = Field(
+        default="",
+        description="The narrowest existing category that honestly contains it. Used only "
+        "when matches_key is empty.",
+    )
+    name: str = Field(
+        default="",
+        description="Display name for a new resource, in the language of the post.",
+    )
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason: str = Field(description="One sentence, so a bad placement can be diagnosed later.")

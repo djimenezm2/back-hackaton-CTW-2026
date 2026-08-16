@@ -186,10 +186,10 @@ class ZoneTests(TestCase):
         self.assertNotIn("Pereira", names)
 
     def test_the_impact_zone_is_ranked_by_proximity_not_size(self):
-        # By population the epicentre's own municipality falls past the toponym cap
+        # A set, because the two share a centroid and their order is a coin flip
         names = [unit.name for unit in places_by_zone(self.event, Zone.IMPACT)]
 
-        self.assertEqual(names[:2], ["Chocó", "Quibdó"])
+        self.assertEqual(set(names[:2]), {"Chocó", "Quibdó"})
 
     def test_the_support_zone_is_ranked_by_size(self):
         units = list(places_by_zone(self.event, Zone.SUPPORT))
