@@ -46,6 +46,8 @@ def _load_event(spec: dict, write: Writer) -> Event:
             "country_code": spec["country_code"],
             "languages": spec["languages"],
             "detection_source": spec["detection_source"],
+            # USGS's own id, or a re-poll proposes this same quake a second time
+            "external_id": spec.get("external_id", ""),
             "lexicon": spec["lexicon"],
         },
     )

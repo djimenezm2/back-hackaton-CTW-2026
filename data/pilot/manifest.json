@@ -9,6 +9,7 @@
     "country_code": "CO",
     "languages": ["es"],
     "detection_source": "usgs",
+    "external_id": "us6000tjl2",
     "lexicon": {
       "hashtags": ["TerremotoColombia", "SismoColombia", "FuerzaColombia"],
       "nicknames": ["terremoto del Chocó", "sismo del 10 de agosto"],

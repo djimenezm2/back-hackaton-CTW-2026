@@ -26,6 +26,10 @@ class Command(BaseCommand):
         Rows are summarised per poll rather than printed one by one. A pass that reads nine
         hundred posts is one sentence here and nine hundred lines in the log, and the whole
         point of this command is that somebody can follow it from across a room.
+
+        Polling every second because the delay somebody notices is this one, and six counting
+        queries a second cost nothing next to a screen that looks frozen. What paces the work
+        itself is `TICK_SECONDS`, and no interval here can make a slow beat look busy.
     """
 
     help = "Narrate the loop in prose, for a demo screen."
@@ -33,7 +37,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser: ArgumentParser) -> None:
         """Declare the scope and the pace."""
         parser.add_argument("--event", type=int, help="Restrict to one event.")
-        parser.add_argument("--interval", type=float, default=3.0, help="Seconds between polls.")
+        parser.add_argument("--interval", type=float, default=1.0, help="Seconds between polls.")
         parser.add_argument(
             "--once", action="store_true", help="Summarise what is already there, then exit."
         )

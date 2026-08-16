@@ -40,12 +40,12 @@ MARKERS = $(if $(LIVE),-m "",)
 .DEFAULT_GOAL := help
 .PHONY: help init up down ps logs check lint format comments types test \
         migrate migrations run shell superuser apikey seed unseed \
-        taxonomy gazetteer events watch arm harvest pipeline graph media report narrate \
+        taxonomy gazetteer events watch arm harvest pipeline graph media report narrate tick \
         worker beat \
         prod.deploy prod.seed prod.unseed prod.logs prod.ps prod.shell prod.migrate \
         prod.taxonomy prod.gazetteer \
         prod.events prod.watch prod.arm prod.harvest prod.pipeline prod.graph prod.media \
-        prod.report prod.narrate prod.workers prod.workers-down prod.ceiling
+        prod.report prod.narrate prod.tick prod.workers prod.workers-down prod.ceiling
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*##"; printf "Local:\n"} /^[a-z0-9_-]+:.*##/ {printf "  make %-14s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -138,6 +138,9 @@ report: ## Compare what each harvesting route produced. ARGS="--event 1"
 narrate: ## Follow the loop in prose. ARGS="--once" for a snapshot
 	$(MANAGE) narrate $(ARGS)
 
+tick: ## Beat the loop once, now, without waiting for TICK_SECONDS
+	$(MANAGE) tick
+
 worker: ## Run a Celery worker
 	$(UV) run celery -A backend worker -l info
 
@@ -211,6 +214,9 @@ prod.report: ## Compare what each harvesting route produced. ARGS="--event 1"
 
 prod.narrate: ## Follow the deployment in prose, for the demo screen
 	$(PROD_MANAGE) narrate $(ARGS)
+
+prod.tick: ## Beat the loop once, now. Beat waits a full TICK_SECONDS before its first
+	$(PROD_MANAGE) tick
 
 prod.workers: ## Start the perpetual loop. Bounded by the global spend ceiling
 	$(DC) --profile workers up -d worker beat
