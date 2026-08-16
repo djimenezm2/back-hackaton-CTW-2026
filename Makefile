@@ -25,7 +25,7 @@ MARKERS = $(if $(LIVE),-m "",)
 
 .DEFAULT_GOAL := help
 .PHONY: help init up down restart ps logs build rebuild \
-        check lint format types test migrate migrations shell run superuser seed unseed eval
+        check lint format types test migrate migrations shell run superuser seed unseed eval pipeline worker
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*##"; printf "Available commands:\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  make %-22s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -74,6 +74,12 @@ seed: ## Load the seed datasets (idempotent). make seed ARGS="--list" to see the
 
 unseed: ## Delete the seed datasets
 	$(MANAGE) seed --clear $(ARGS)
+
+pipeline: ## Read an event's posts into requirements (ARGS="--limit 20")
+	$(MANAGE) run_pipeline $(ARGS)
+
+worker: ## Run a Celery worker
+	$(UV) run celery -A backend worker -l info
 
 eval: ## Score the extraction prompt against real posts (calls the model)
 	$(MANAGE) eval_extraction $(ARGS)

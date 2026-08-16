@@ -17,6 +17,12 @@ The cascade runs cheapest first and stops as soon as something is certain:
 Step 4 exists because steps 1-3 miss "Cruz Roja Risaralda" against "Seccional Risaralda de la
 Cruz Roja Colombiana". It is deliberately fourth: "Coliseo Mayor" and "Coliseo Menor" are
 nearly identical as vectors and are different buildings.
+
+Note:
+    The trigram bar is high because it was measured, not guessed. "coliseo mayor" scores
+    0.560 against "coliseo mayor de pereira" — one place — and 0.556 against "coliseo menor",
+    which is two. Nothing in that band can be settled by letters, so the threshold refuses
+    and the expensive signals decide.
 """
 
 from dataclasses import dataclass
@@ -32,11 +38,7 @@ from ayudagente.radar.models import Actor, ActorMention, ContactPoint, Location,
 from ayudagente.radar.schemas import ActorMatchVerdict, ExtractedActor, ExtractedContact
 from ayudagente.radar.services.text import normalize
 
-# Above this the names are the same name; below the floor a pair is not worth comparing.
-# Measured on real pairs, which is why the bar is high: "coliseo mayor" scores 0.560 against
-# "coliseo mayor de pereira" (one place) and 0.556 against "coliseo menor" (two places), so
-# nothing in that band can be settled by letters alone.
-TRIGRAM_CERTAIN = 0.82
+TRIGRAM_CERTAIN = 0.82  # above this, two names are one name
 TRIGRAM_CANDIDATE = 0.30
 
 # Cosine distance, so lower is closer. Past this the model decides.
@@ -46,8 +48,7 @@ EMBEDDING_CANDIDATE = 0.35
 # Refuse a merge the model is not sure about; a duplicate is cheaper to fix than a bad join.
 LLM_CERTAIN = 0.80
 
-# Contact kinds that identify one entity. A shared street address does not: two organizations
-# can run a collection point out of the same building.
+# Contact kinds that identify one entity; a shared address does not
 IDENTIFYING_CONTACTS = frozenset({ContactKind.HANDLE, ContactKind.PHONE, ContactKind.EMAIL})
 
 ADJUDICATION_PROMPT = """\

@@ -22,8 +22,7 @@ from ayudagente.radar.models.catalog import ResourceType
 from ayudagente.radar.models.events import Event
 from ayudagente.radar.models.harvest import Observation
 
-# Matches a human has already acted on. Two consequences: a recomputation must not rewrite
-# them, and they are what counts toward a requirement being covered.
+# Matches a human has already acted on: never rewritten, and they count toward coverage
 FROZEN_MATCH_STATES = frozenset(
     {
         MatchStatus.CONTACTED,

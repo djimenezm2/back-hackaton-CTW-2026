@@ -80,8 +80,7 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
-# Harvested images live on disk, not in Postgres: hundreds of MB of bytes would bloat
-# every backup for something a filesystem does better.
+# Harvested images live on disk, not in Postgres: bytes would bloat every backup
 MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", BASE_DIR / "media"))
 MEDIA_URL = "media/"
 
@@ -103,8 +102,13 @@ if os.environ.get("GDAL_LIBRARY_PATH"):
 if os.environ.get("GEOS_LIBRARY_PATH"):
     GEOS_LIBRARY_PATH = os.environ["GEOS_LIBRARY_PATH"]
 
-# OpenAI. A model per role, mapped onto the GPT-5.6 tiers: Sol for frontier judgment,
-# Luna for cheap image triage. Extraction shares Sol until the volume justifies splitting.
+# Celery. No result backend: a task's output is the rows it wrote
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_TASK_ACKS_LATE = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_TIME_LIMIT = 600
+
+# OpenAI. A model per role, mapped onto the GPT-5.6 tiers
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODELS = {
     "reasoning": os.environ.get("OPENAI_MODEL_REASONING", "gpt-5.6-sol"),
