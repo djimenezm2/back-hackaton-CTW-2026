@@ -29,12 +29,14 @@ from typing import Any
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from ayudagente.radar.choices import HarvestTarget, JobStatus
-from ayudagente.radar.models import HarvestJob, Media, Observation
+from ayudagente.radar.models import Event, HarvestJob, Media, Observation
 from ayudagente.radar.services.frontier import record_harvest
 from ayudagente.radar.services.normalize import normalize
+from ayudagente.radar.services.pacing import trip_ceiling
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +168,7 @@ def run_harvest_job(job_id: int, client=None) -> Harvested:
     result = persist_items(job, items, is_comment=job.target_kind == HarvestTarget.COMMENTS)
     status = _outcome_status(job, result)
 
+    cost = _cost(run)
     with transaction.atomic():
         _finish(
             job,
@@ -174,13 +177,18 @@ def run_harvest_job(job_id: int, client=None) -> Harvested:
             dataset_id=run.default_dataset_id or "",
             items_returned=result.items_returned,
             items_new=result.items_new,
-            cost_usd=_cost(run),
+            cost_usd=cost,
         )
         record_harvest(
             job,
             items_new=result.items_new,
             counts_as_evidence=status != JobStatus.ACTOR_DOWN,
         )
+        # Rolled up here or the event's total stays zero and the circuit breaker never trips
+        Event.objects.filter(pk=job.event.pk).update(spent_usd=F("spent_usd") + cost)
+
+    job.event.refresh_from_db(fields=["spent_usd"])
+    trip_ceiling(job.event)
 
     logger.info(
         "harvest job %s: %s items, %s new, %s",

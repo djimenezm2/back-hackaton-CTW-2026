@@ -19,21 +19,30 @@ Note:
 """
 
 import logging
+from uuid import uuid4
 
 from celery import shared_task
 from django.db import transaction
 from openai import APIError, RateLimitError
 
-from ayudagente.radar.choices import JobStatus
+from agent_tools.agents import LLMNotConfigured, build_agent
+from ayudagente.radar.choices import EventStatus, JobStatus
 from ayudagente.radar.models import Event, Extraction, HarvestJob, Observation, Requirement
 from ayudagente.radar.services.extraction import Extractor
 from ayudagente.radar.services.frontier import record_actionable_find
 from ayudagente.radar.services.harvest import HarvestNotConfigured, run_harvest_job
 from ayudagente.radar.services.ingest import Ingested, Ingestor
+from ayudagente.radar.services.pacing import Verdict, should_decide
 
 logger = logging.getLogger(__name__)
 
 RETRYABLE = (RateLimitError, APIError)  # retried by the task, never waited on inline
+
+# What the agent is told each round. Everything else it needs is in its prompt template.
+ROUND_PROMPT = (
+    "Run a round. Read the frontier, pick the targets worth harvesting now, and queue "
+    "a job for each with its rationale. Skip anything already in flight."
+)
 
 
 @shared_task(
@@ -145,8 +154,7 @@ def harvest(self, job_id: int) -> dict:
     }
 
 
-@shared_task
-def harvest_pending(event_id: int, *, limit: int | None = None) -> dict:
+def dispatch_pending(event_id: int, limit: int | None = None) -> dict:
     """
     Dispatch every job the frontier agent has queued and nobody has run.
 
@@ -169,6 +177,89 @@ def harvest_pending(event_id: int, *, limit: int | None = None) -> dict:
         harvest.delay(job_id)  # type: ignore[attr-defined]
     logger.info("dispatched %s harvest jobs for event %s", len(ids), event_id)
     return {"event": event_id, "dispatched": len(ids)}
+
+
+@shared_task
+def harvest_pending(event_id: int, *, limit: int | None = None) -> dict:
+    """Queue the pending harvests of one event. See `dispatch_pending`."""
+    return dispatch_pending(event_id, limit)
+
+
+def run_round(event_id: int, force: bool = False) -> dict:
+    """
+    Let the frontier agent decide where to look next, with nobody watching.
+
+    Args:
+        event_id (int): The event to decide for.
+        force (bool): Skip the pacing check. For a human triggering a round by hand.
+
+    Returns:
+        dict: Whether it ran, why not when it did not, and how many jobs it queued.
+
+    Note:
+        A fresh conversation every round, and that is the whole point. The checkpointer keeps
+        state in Postgres, so reusing one thread would carry every previous round's tool calls
+        into the next prompt — sixteen rounds overnight and the agent is reading its own
+        history instead of the scoreboard.
+
+        Nothing is lost by forgetting, because the memory that matters is in the database.
+        `job_in_flight` tells it what is already queued and `create_harvest_job` refuses a
+        target harvested minutes ago. A conversation is the wrong place to keep either.
+    """
+    event = Event.objects.get(pk=event_id)
+
+    verdict = Verdict(True, "forced") if force else should_decide(event)
+    if not verdict.proceed:
+        logger.info("frontier round skipped for event %s: %s", event_id, verdict.reason)
+        return {"event": event_id, "ran": False, "reason": verdict.reason}
+
+    before = HarvestJob.objects.filter(event=event, status=JobStatus.PENDING).count()
+    try:
+        graph = build_agent("frontier", event)
+        graph.invoke(
+            {"messages": [{"role": "user", "content": ROUND_PROMPT}]},
+            config={"configurable": {"thread_id": f"frontier-{event_id}-{uuid4()}"}},
+        )
+    except LLMNotConfigured as exc:
+        logger.error("frontier round for event %s: %s", event_id, exc)
+        return {"event": event_id, "ran": False, "reason": str(exc)}
+
+    queued = HarvestJob.objects.filter(event=event, status=JobStatus.PENDING).count() - before
+    logger.info("frontier round for event %s queued %s jobs (%s)", event_id, queued, verdict.reason)
+    return {"event": event_id, "ran": True, "reason": verdict.reason, "queued": queued}
+
+
+@shared_task
+def frontier_round(event_id: int, *, force: bool = False) -> dict:
+    """Run one decision round for an event. See `run_round`."""
+    return run_round(event_id, force)
+
+
+def run_tick() -> dict:
+    """
+    One beat of the perpetual loop, across every active event.
+
+    Returns:
+        dict: What each event did, so a single log line says whether the night is progressing.
+
+    Note:
+        Harvest first, then decide. A round that runs before its predecessor's jobs have been
+        executed reads a scoreboard where nothing has moved, and the pacing check would see a
+        deep queue and skip anyway — doing the work first is what keeps the loop moving rather
+        than oscillating.
+    """
+    outcomes = {}
+    for event in Event.objects.filter(status=EventStatus.ACTIVE):
+        dispatch_pending(event.pk)
+        outcomes[event.pk] = run_round(event.pk)
+    logger.info("tick covered %s active events", len(outcomes))
+    return {"events": outcomes}
+
+
+@shared_task
+def tick() -> dict:
+    """One beat of the perpetual loop. See `run_tick`."""
+    return run_tick()
 
 
 def pending_observations(event_id: int, *, force: bool = False):

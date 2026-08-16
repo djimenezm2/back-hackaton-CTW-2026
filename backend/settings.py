@@ -115,6 +115,14 @@ CELERY_TASK_ACKS_LATE = True
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_TIME_LIMIT = 600
 
+# One beat drives the whole perpetual loop; the pacing rules decide what it actually does
+CELERY_BEAT_SCHEDULE = {
+    "radar-tick": {
+        "task": "ayudagente.radar.tasks.tick",
+        "schedule": float(os.environ.get("TICK_SECONDS", 300)),
+    }
+}
+
 # OpenAI. A model per role, mapped onto the GPT-5.6 tiers
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODELS = {
@@ -128,3 +136,6 @@ GOOGLE_GEOCODING_API_KEY = os.environ.get("GOOGLE_GEOCODING_API_KEY", "")
 
 # Apify. Without it the frontier can decide where to look but nothing ever fetches a post
 APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")
+
+# Circuit breaker, not a budget: past this an event is paused. Zero disables it
+HARVEST_SPEND_CEILING_USD = float(os.environ.get("HARVEST_SPEND_CEILING_USD", 25))

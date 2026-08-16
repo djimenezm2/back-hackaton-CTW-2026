@@ -26,7 +26,7 @@ MARKERS = $(if $(LIVE),-m "",)
 .DEFAULT_GOAL := help
 .PHONY: help init up down restart ps logs build rebuild \
         check lint format comments types test migrate migrations shell run superuser apikey \
-        taxonomy gazetteer seed unseed eval harvest pipeline worker
+        taxonomy gazetteer seed unseed eval harvest pipeline worker beat
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*##"; printf "Available commands:\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  make %-22s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -90,6 +90,9 @@ harvest: ## Run the harvest jobs the frontier queued (ARGS="--limit 3 --pipeline
 
 pipeline: ## Read an event's posts into requirements (ARGS="--limit 20")
 	$(MANAGE) run_pipeline $(ARGS)
+
+beat: ## Run the scheduler that drives the perpetual loop
+	$(UV) run celery -A backend beat -l info
 
 worker: ## Run a Celery worker
 	$(UV) run celery -A backend worker -l info

@@ -76,6 +76,33 @@ What does *not* transfer is the calibration: which platform yields what, which q
 what an actionable item costs. Those numbers come from one Spanish-language Colombian
 earthquake and have to be re-measured per country and language.
 
+## The loop runs unattended, and novelty is what paces it
+
+`tick` beats every `TICK_SECONDS`: dispatch the harvests already decided, then let the frontier
+agent decide more. Harvest first — a round that runs before its predecessor's jobs have been
+executed reads a scoreboard where nothing has moved.
+
+**Every round is a fresh conversation.** The checkpointer keeps state in Postgres, so reusing
+one thread would carry every previous round's tool calls into the next prompt — sixteen rounds
+overnight and the agent reads its own history instead of the scoreboard. Nothing is lost by
+forgetting, because the memory that matters is in the database: `job_in_flight` says what is
+already queued and `create_harvest_job` refuses a target harvested minutes ago.
+
+An emergency has no natural end, so the loop needs a reason to wait, and the honest one is
+**novelty**. `HarvestJob.items_new` counts what survived deduplication; a pass returning two
+hundred items of which five are new has exhausted its queries for the moment. That is a quality
+signal, the same kind as `yield_rate`, so the cost invariant below still holds.
+
+Low novelty is a wait, not an end. The measurement is taken over recent jobs, so without an
+escape a quiet hour would keep the loop asleep for good — past `PROBE_AFTER` a round runs
+regardless, because the only way to learn the world moved is to look.
+
+Three things stop it outright: a paused event, a queue deep enough that harvest is the
+bottleneck, and `HARVEST_SPEND_CEILING_USD`. That last one is a circuit breaker, not a budget —
+nothing weighs it against anything, it exists so a runaway loop at three in the morning stops
+instead of billing until someone wakes up. Tripping it pauses the event, because
+`Event.is_harvestable` is already the kill switch every writer checks.
+
 ## Cost is recorded, never used to decide
 
 Sweeping is cheap — you batch toponyms into one query per platform × zone × axis, not one
@@ -203,11 +230,9 @@ harvest → normalize → extract → geocode → identity → ingest pipeline a
 both agents, the HTTP API behind an API key ([`docs/api.md`](docs/api.md)), tooling, docker
 stack.
 
-**Not built yet:** the scheduler that makes the loop perpetual — a Celery beat entry and a
-non-HTTP entry point for the frontier agent, with a fresh thread per round so the checkpointer
-does not carry every previous round into the next prompt. Then node bootstrap from `AdminUnit`,
-promotion of proven accounts to nodes, automatic `exhausted`, media download, and the watch
-stage that detects an event in the first place. Each is its own slice.
+**Not built yet:** promotion of proven accounts to frontier nodes, automatic `exhausted`,
+media download, the `unverified` quarantine, one write endpoint to mark an outreach dispatched,
+and the watch stage that detects an event in the first place. Each is its own slice.
 
 **The harvest loop is closed and that is load-bearing.** `services/harvest.py` runs a job and
 writes back through `record_harvest`; `tasks.process_observation` credits the target through
