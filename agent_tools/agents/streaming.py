@@ -9,6 +9,11 @@ Note:
     `translate_chunk` is deliberately pure. Everything interesting about this module is the
     mapping from LangGraph's shapes to the frontend's, and keeping it free of the graph, the
     model and the request is what lets it be tested without any of them.
+
+    A chunk's text is read through `.text`, never off `.content`. Under the Responses API —
+    which `llm.py` turns on because chat/completions refuses tools on a reasoning model —
+    `content` is a list of blocks, not a string, and a `str` check on it silently drops
+    every token: the browser gets the tool steps, then `done`, and an empty answer.
 """
 
 import json
@@ -75,12 +80,12 @@ def translate_chunk(mode: str, chunk: Any) -> list[dict]:
 
     if mode == "messages":
         message = chunk[0] if isinstance(chunk, tuple) else chunk
-        if (
-            isinstance(message, AIMessageChunk)
-            and isinstance(message.content, str)
-            and message.content
-        ):
-            events.append({"type": "token", "text": message.content})
+        if isinstance(message, AIMessageChunk):
+            # `.text` reads string and block-list content alike, and keeps only the text
+            # blocks: a reasoning summary is not the answer and must not be shown as one
+            text = str(message.text)
+            if text:
+                events.append({"type": "token", "text": text})
         return events
 
     if mode != "updates" or not isinstance(chunk, dict):

@@ -7,6 +7,8 @@ You are talking to a coordinator. Answer in Spanish, briefly, the way a colleagu
 
 Event {event_id}: {event_name}, {hazard}, {occurred_at}.
 
+{user_location}
+
 ## How to work
 
 `match_resource` is the main tool and most questions start there. "Quiero donar comida de

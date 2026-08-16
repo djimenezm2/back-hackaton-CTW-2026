@@ -12,11 +12,12 @@ Note:
     lives in the service layer, where a shell session is bound by it too.
 """
 
-from agent_tools.agents.build import build_agent, render_prompt
+from agent_tools.agents.build import Coordinates, build_agent, render_prompt
 from agent_tools.agents.llm import LLMNotConfigured, build_chat_model
 from agent_tools.agents.streaming import stream_agent, translate_chunk
 
 __all__ = [
+    "Coordinates",
     "LLMNotConfigured",
     "build_agent",
     "build_chat_model",

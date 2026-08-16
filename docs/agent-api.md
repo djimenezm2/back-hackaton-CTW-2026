@@ -35,7 +35,8 @@ Content-Type: application/json
 {
   "event_id": 1,
   "message": "¿qué falta en Quibdó?",
-  "thread_id": "0f1c…"        // omit on the first turn
+  "thread_id": "0f1c…",                        // omit on the first turn
+  "location": {"lat": 5.6947, "lon": -76.6611} // omit when the browser gave none
 }
 ```
 
@@ -44,6 +45,23 @@ Content-Type: application/json
 | `event_id` | yes | From `GET /api/events/`. Everything is scoped to one emergency. |
 | `message` | yes | Spanish. Up to 2000 characters. |
 | `thread_id` | no | Omit to start a conversation; the server returns one to reuse. |
+| `location` | no | Where the person asking is. Omit it entirely when you do not have one. |
+
+### Location
+
+The browser is the only thing that knows where the coordinator is, and half of what gets
+asked during an emergency is implicitly about it — "¿qué falta cerca de mí?", "¿quién tiene
+agua por aquí?". Send it and the agent passes it to `match_resource` as `lat`/`lon`, so
+results come back nearest first. Omit it and the agent asks where they are instead.
+
+Read it per turn, not once: `watchPosition` rather than `getCurrentPosition`, because a
+coordinator moves and each request carries whatever the last fix was. It is never stored on
+the thread.
+
+**A malformed or off-Earth `location` is a 400, not a field that gets dropped.** A silently
+discarded position answers "cerca de mí" from nowhere in particular, and nothing in the
+reply says the distances were invented. Send the key only when you have real coordinates —
+`null` is not a location, so leave it out.
 
 Both endpoints need the API key, like everything under `/api/`. Send it in `X-API-Key` or as
 `Authorization: Bearer <key>` — see [`api.md`](api.md) for the scheme and the CORS settings.
@@ -171,6 +189,7 @@ sent, nothing to clean up.
 | 400 | `{"error": "message is required"}` | Missing, empty or oversized message |
 | 400 | `{"error": "event_id does not exist"}` | Bad `event_id` |
 | 400 | `{"error": "body must be JSON"}` | Malformed body |
+| 400 | `{"error": "location needs a numeric lat and lon"}` | `location` sent but unusable |
 | 401 / 403 | `{"error": "…"}` | Missing or unknown API key |
 | 404 | Django's own page, not JSON | Wrong path — only the two above exist |
 | 405 | — | Not a POST |
@@ -201,11 +220,12 @@ usually reaches for them:
 
 | Tool | Shown as |
 |---|---|
+| `match_resource` | Finding the other side of the resource |
+| `check_coverage` | Checking whether help is already coming |
+| `find_gaps` | Looking for what nobody is covering |
 | `get_balance` | Comparing supply and demand |
-| `find_requirements` | Searching needs / offers |
 | `get_actor_contacts` | Looking up how to reach them |
 | `road_distance` | Measuring the real drive |
-| `plan_trip_stops` | Ordering the stops |
 | `propose_match` | Proposing a pairing |
 | `draft_outreach` | Drafting a message |
 

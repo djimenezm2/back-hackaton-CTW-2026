@@ -19,8 +19,8 @@ from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, Too
 from langchain_openai import ChatOpenAI
 from psycopg.conninfo import conninfo_to_dict
 
-from agent_tools.agents import render_prompt, translate_chunk
-from agent_tools.agents.build import load_prompt
+from agent_tools.agents import Coordinates, render_prompt, translate_chunk
+from agent_tools.agents.build import describe_location, load_prompt
 from agent_tools.agents.checkpointer import build_connection_string
 from agent_tools.agents.llm import LLMNotConfigured, accepts_temperature, build_chat_model
 from agent_tools.agents.streaming import stream_agent, summarize_tool_result
@@ -85,6 +85,34 @@ class PromptTests(TestCase):
         self.assertIn("rationale", prompt)
         self.assertNotIn("match_resource", prompt)  # not in its world at all
 
+    def test_where_the_coordinator_is_reaches_the_prompt(self):
+        # The one fact no tool can look up, and what "cerca de mí" resolves against
+        prompt = render_prompt("coordination", self.event, Coordinates(5.6947, -76.6611))
+
+        self.assertIn("5.69470", prompt)
+        self.assertIn("-76.66110", prompt)
+        self.assertNotIn("{user_location}", prompt)
+
+    def test_a_coordinator_who_shared_nothing_is_said_to_have_shared_nothing(self):
+        # Omitting the line reads as "location does not apply", and it stops asking
+        prompt = render_prompt("coordination", self.event)
+
+        self.assertIn("has not shared their position", prompt)
+        self.assertNotIn("{user_location}", prompt)
+
+    def test_the_frontier_prompt_ignores_a_position_it_has_no_use_for(self):
+        # Where the coordinator stands says nothing about where to harvest next
+        prompt = render_prompt("frontier", self.event, Coordinates(5.6947, -76.6611))
+
+        self.assertNotIn("5.69470", prompt)
+
+    def test_a_position_is_described_to_the_metre_and_no_further(self):
+        described = describe_location(Coordinates(4.8143216789, -75.6946512345))
+
+        self.assertIn("4.81432", described)
+        self.assertIn("-75.69465", described)
+        self.assertNotIn("4.8143216789", described)
+
 
 class TranslateChunkTests(TestCase):
     """The mapping from LangGraph's shapes to the frontend's."""
@@ -94,8 +122,35 @@ class TranslateChunkTests(TestCase):
 
         self.assertEqual(events, [{"type": "token", "text": "En Quibdó"}])
 
+    def test_a_token_arriving_as_content_blocks_is_still_a_token_event(self):
+        # What the Responses API actually sends. Read as a string it is empty, and the
+        # browser draws a bubble that never fills.
+        chunk = AIMessageChunk(content=[{"type": "text", "text": "En Quibdó", "index": 0}])
+
+        self.assertEqual(
+            translate_chunk("messages", (chunk, {})),
+            [{"type": "token", "text": "En Quibdó"}],
+        )
+
+    def test_a_reasoning_block_is_not_streamed_as_the_answer(self):
+        chunk = AIMessageChunk(
+            content=[
+                {"type": "reasoning", "summary": [{"type": "summary_text", "text": "pensando"}]},
+                {"type": "text", "text": "Faltan 2600 L", "index": 1},
+            ]
+        )
+
+        self.assertEqual(
+            translate_chunk("messages", (chunk, {})),
+            [{"type": "token", "text": "Faltan 2600 L"}],
+        )
+
     def test_empty_tokens_are_not_sent(self):
         self.assertEqual(translate_chunk("messages", (AIMessageChunk(content=""), {})), [])
+        self.assertEqual(translate_chunk("messages", (AIMessageChunk(content=[]), {})), [])
+        # An annotation block carries no `text` key at all
+        annotation = AIMessageChunk(content=[{"type": "text", "annotations": [], "index": 0}])
+        self.assertEqual(translate_chunk("messages", (annotation, {})), [])
 
     def test_a_tool_call_is_announced_before_it_runs(self):
         message = AIMessage(
@@ -367,6 +422,47 @@ class AgentEndpointTests(ApiTestCase):
 
         self.assertIn('"thread_id": "mine"', body)
         self.assertEqual(graph.config["configurable"]["thread_id"], "mine")
+
+    def test_the_browsers_position_reaches_the_agent(self):
+        graph = FakeGraph()
+        with patch("ayudagente.radar.agent_views.build_agent", return_value=graph) as build:
+            response = self._post(
+                {
+                    "event_id": self.event.id,
+                    "message": "¿qué falta cerca de mí?",
+                    "location": {"lat": 5.6947, "lon": -76.6611},
+                }
+            )
+            streamed_body(response)
+
+        self.assertEqual(build.call_args.args[2], Coordinates(5.6947, -76.6611))
+
+    def test_a_turn_without_a_position_still_runs(self):
+        # The usual case: the permission is denied, or the fix has not arrived yet
+        graph = FakeGraph()
+        with patch("ayudagente.radar.agent_views.build_agent", return_value=graph) as build:
+            response = self._post({"event_id": self.event.id, "message": "hola"})
+            streamed_body(response)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(build.call_args.args[2])
+
+    def test_an_impossible_position_is_refused_instead_of_dropped(self):
+        # Dropped, it would answer "cerca de mí" from nowhere and never say so
+        for location in (
+            {"lat": 91, "lon": 0},
+            {"lat": 0, "lon": 181},
+            {"lat": "norte", "lon": 0},
+            {"lat": 5.69},
+            "5.69,-76.66",
+        ):
+            with self.subTest(location=location):
+                response = self._post(
+                    {"event_id": self.event.id, "message": "hola", "location": location}
+                )
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("location", response.json()["error"])
 
     def test_the_frontier_agent_has_its_own_endpoint(self):
         graph = FakeGraph()
