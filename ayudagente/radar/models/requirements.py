@@ -72,9 +72,7 @@ class Requirement(models.Model):
     unit = models.CharField(max_length=30, blank=True)
     covered_quantity = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
-    location = models.ForeignKey(
-        Location, on_delete=models.PROTECT, related_name="requirements"
-    )
+    location = models.ForeignKey(Location, on_delete=models.PROTECT, related_name="requirements")
     destination = models.ForeignKey(
         Location,
         null=True,

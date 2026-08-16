@@ -22,11 +22,11 @@ CALI = Point(-76.5320, 3.4516, srid=4326)
 
 def make_event(**kwargs) -> Event:
     defaults = {
-        'hazard': HazardKind.EARTHQUAKE,
-        'name': 'Sismo de prueba',
-        'occurred_at': timezone.now(),
-        'detection_source': 'manual',
-        'epicenter': PEREIRA,
+        "hazard": HazardKind.EARTHQUAKE,
+        "name": "Sismo de prueba",
+        "occurred_at": timezone.now(),
+        "detection_source": "manual",
+        "epicenter": PEREIRA,
     }
     defaults.update(kwargs)
     return Event.objects.create(**defaults)
@@ -34,16 +34,16 @@ def make_event(**kwargs) -> Event:
 
 def make_resource(key: str, name: str | None = None, parent=None, **kwargs) -> ResourceType:
     return ResourceType.objects.create(
-        key=key, name=name or key.replace('_', ' ').title(), parent=parent, **kwargs
+        key=key, name=name or key.replace("_", " ").title(), parent=parent, **kwargs
     )
 
 
 def make_location(point: Point, text: str, **kwargs) -> Location:
     defaults = {
-        'precision': LocationPrecision.NEIGHBORHOOD,
-        'raw_text': text,
-        'text_norm': text.lower(),
-        'source': GeocodeSource.MANUAL,
+        "precision": LocationPrecision.NEIGHBORHOOD,
+        "raw_text": text,
+        "text_norm": text.lower(),
+        "source": GeocodeSource.MANUAL,
     }
     defaults.update(kwargs)
     return Location.objects.create(point=point, **defaults)
@@ -52,11 +52,11 @@ def make_location(point: Point, text: str, **kwargs) -> Location:
 def make_actor(event: Event, name: str, **kwargs) -> Actor:
     now = timezone.now()
     defaults = {
-        'kind': ActorKind.PERSON,
-        'canonical_name': name,
-        'name_norm': name.lower(),
-        'first_seen_at': now,
-        'last_seen_at': now,
+        "kind": ActorKind.PERSON,
+        "canonical_name": name,
+        "name_norm": name.lower(),
+        "first_seen_at": now,
+        "last_seen_at": now,
     }
     defaults.update(kwargs)
     return Actor.objects.create(event=event, **defaults)
@@ -71,9 +71,9 @@ def make_requirement(
     **kwargs,
 ) -> Requirement:
     defaults = {
-        'urgency': Urgency.HIGH,
-        'last_seen_at': timezone.now(),
-        'confidence': 0.8,
+        "urgency": Urgency.HIGH,
+        "last_seen_at": timezone.now(),
+        "confidence": 0.8,
     }
     defaults.update(kwargs)
     return Requirement.objects.create(

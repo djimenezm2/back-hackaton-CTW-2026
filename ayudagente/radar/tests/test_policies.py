@@ -60,9 +60,10 @@ class TestContactChannels:
         assert not contact(ContactKind.EMAIL, reachable=False).can_carry_a_message
 
     def test_email_outranks_phone(self):
-        assert contact(ContactKind.EMAIL).preference_rank() < contact(
-            ContactKind.PHONE
-        ).preference_rank()
+        assert (
+            contact(ContactKind.EMAIL).preference_rank()
+            < contact(ContactKind.PHONE).preference_rank()
+        )
 
     def test_unusable_details_sort_last(self):
         worst = contact(ContactKind.EMAIL).preference_rank()

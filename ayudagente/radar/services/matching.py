@@ -18,22 +18,24 @@ from scipy.optimize import linear_sum_assignment
 
 from ayudagente.radar.choices import Direction, MatchStatus, RequirementStatus, Urgency
 from ayudagente.radar.models import Match, Requirement
-from ayudagente.radar.models.requirements import FROZEN_MATCH_STATES
 from ayudagente.radar.services.requirements import resource_family
 
 # Beyond this, a pair needs a transport requirement to be actionable
 DIRECT_DELIVERY_KM = 30.0
+# How far a transporter plausibly drives to pick cargo up (dead-head leg)
+TRANSPORT_PICKUP_KM = 250.0
 # Pairs scoring below this are noise, not proposals
 MIN_SCORE = 0.2
 
-URGENCY_WEIGHT = {
+# Keyed by str: `Requirement.urgency` reaches us as a plain CharField value
+URGENCY_WEIGHT: dict[str, float] = {
     Urgency.CRITICAL: 1.0,
     Urgency.HIGH: 0.8,
     Urgency.MEDIUM: 0.55,
     Urgency.LOW: 0.3,
 }
 
-TRANSPORT_KEY = 'transporte'
+TRANSPORT_KEY = "transporte"
 
 
 def geodesic_km(a, b) -> float:
@@ -87,17 +89,20 @@ def _find_transport(need, offer, transports) -> Requirement | None:
     A transport offer that can bridge offer → need: origin near the offer, destination
     near the need or not yet fixed (`destination` null = solver decides).
     """
-    best, best_km = None, float('inf')
+    # A transport already routed to the need's area beats a destination-free one:
+    # rank by (destination-free?, pickup distance) so fixed matching routes win ties.
+    best, best_rank = None, (True, float("inf"))
     for transport in transports:
         origin_km = geodesic_km(transport.location.point, offer.location.point)
-        if origin_km > DIRECT_DELIVERY_KM:
+        if origin_km > TRANSPORT_PICKUP_KM:
             continue
         if transport.destination is not None:
             dest_km = geodesic_km(transport.destination.point, need.location.point)
             if dest_km > DIRECT_DELIVERY_KM:
                 continue
-        if origin_km < best_km:
-            best, best_km = transport, origin_km
+        rank = (transport.destination is None, origin_km)
+        if rank < best_rank:
+            best, best_rank = transport, rank
     return best
 
 
@@ -108,7 +113,7 @@ def propose_match(
     committed_quantity=None,
     distance_km: float | None = None,
     score: float | None = None,
-    rationale: str = '',
+    rationale: str = "",
 ) -> Match | None:
     """
     Create or refresh one proposed match, respecting the frozen-state invariant.
@@ -117,9 +122,9 @@ def propose_match(
     already involved and the row must not be rewritten.
     """
     if need.direction != Direction.NEEDS or offer.direction != Direction.OFFERS:
-        raise ValueError('need must have direction=needs and offer direction=offers')
+        raise ValueError("need must have direction=needs and offer direction=offers")
     if via_transport is not None and not _is_transport(via_transport):
-        raise ValueError('via_transport must be a transport-family requirement')
+        raise ValueError("via_transport must be a transport-family requirement")
 
     if distance_km is None:
         distance_km = round(geodesic_km(need.location.point, offer.location.point), 1)
@@ -140,11 +145,11 @@ def propose_match(
         need=need,
         offer=offer,
         defaults={
-            'via_transport': via_transport,
-            'committed_quantity': committed_quantity,
-            'distance_km': distance_km,
-            'score': score,
-            'rationale': rationale,
+            "via_transport": via_transport,
+            "committed_quantity": committed_quantity,
+            "distance_km": distance_km,
+            "score": score,
+            "rationale": rationale,
         },
     )
     return match
@@ -166,16 +171,18 @@ def run_matching_pass(event_id: int) -> dict:
         Requirement.objects.filter(
             event_id=event_id,
             status__in=(RequirementStatus.OPEN, RequirementStatus.PARTIAL),
-        ).select_related('resource', 'location', 'destination', 'actor')
+        ).select_related("resource", "location", "destination", "actor")
     )
 
     transports = [r for r in open_reqs if _is_transport(r) and r.direction == Direction.OFFERS]
     needs = [
-        r for r in open_reqs
+        r
+        for r in open_reqs
         if r.direction == Direction.NEEDS and not r.is_saturated and not _is_transport(r)
     ]
     offers = [
-        r for r in open_reqs
+        r
+        for r in open_reqs
         if r.direction == Direction.OFFERS and not r.is_saturated and not _is_transport(r)
     ]
 
@@ -195,50 +202,48 @@ def run_matching_pass(event_id: int) -> dict:
             score = score_pair(need, offer, km)
             if score >= MIN_SCORE:
                 candidates[(i, j)] = {
-                    'distance_km': round(km, 1),
-                    'score': score,
-                    'via_transport': transport,
+                    "distance_km": round(km, 1),
+                    "score": score,
+                    "via_transport": transport,
                 }
 
     proposed_ids: list[int] = []
     if candidates:
         cost = np.full((len(needs), len(offers)), 1.0)
         for (i, j), meta in candidates.items():
-            cost[i, j] = 1.0 - meta['score']
+            cost[i, j] = 1.0 - meta["score"]
         rows, cols = linear_sum_assignment(cost)
 
-        for i, j in zip(rows, cols):
+        for i, j in zip(rows, cols, strict=True):
             meta = candidates.get((i, j))
             if meta is None:
                 continue  # assignment landed on a non-candidate cell
             need, offer = needs[i], offers[j]
             transport_note = (
-                f' vía transporte #{meta["via_transport"].id}' if meta['via_transport'] else ''
+                f" vía transporte #{meta['via_transport'].id}" if meta["via_transport"] else ""
             )
             match = propose_match(
                 need,
                 offer,
-                via_transport=meta['via_transport'],
-                distance_km=meta['distance_km'],
-                score=meta['score'],
+                via_transport=meta["via_transport"],
+                distance_km=meta["distance_km"],
+                score=meta["score"],
                 rationale=(
-                    f'{offer.actor.canonical_name} ofrece {offer.resource.name} a '
-                    f'{meta["distance_km"]} km de la necesidad de '
-                    f'{need.actor.canonical_name} (urgencia {need.urgency})'
-                    f'{transport_note}. Score {meta["score"]}.'
+                    f"{offer.actor.canonical_name} ofrece {offer.resource.name} a "
+                    f"{meta['distance_km']} km de la necesidad de "
+                    f"{need.actor.canonical_name} (urgencia {need.urgency})"
+                    f"{transport_note}. Score {meta['score']}."
                 ),
             )
             if match is not None:
                 proposed_ids.append(match.id)
 
     # Stale proposals: still `proposed` but not re-produced by this pass
-    Match.objects.filter(
-        need__event_id=event_id, status=MatchStatus.PROPOSED
-    ).exclude(id__in=proposed_ids).delete()
+    Match.objects.filter(need__event_id=event_id, status=MatchStatus.PROPOSED).exclude(
+        id__in=proposed_ids
+    ).delete()
 
     reachable = {i for (i, _j) in candidates}
-    unreachable_need_ids = [
-        needs[i].id for i in range(len(needs)) if i not in reachable
-    ]
+    unreachable_need_ids = [needs[i].id for i in range(len(needs)) if i not in reachable]
 
-    return {'proposed': proposed_ids, 'unreachable_need_ids': unreachable_need_ids}
+    return {"proposed": proposed_ids, "unreachable_need_ids": unreachable_need_ids}

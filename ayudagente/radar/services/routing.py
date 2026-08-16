@@ -14,7 +14,7 @@ import urllib.request
 
 from django.contrib.gis.geos import Point
 
-OSRM_BASE_URL = os.environ.get('OSRM_BASE_URL', 'https://router.project-osrm.org')
+OSRM_BASE_URL = os.environ.get("OSRM_BASE_URL", "https://router.project-osrm.org")
 
 
 class RoutingError(Exception):
@@ -22,12 +22,12 @@ class RoutingError(Exception):
 
 
 def _osrm(service: str, coords: list[Point], params: dict) -> dict:
-    path = ';'.join(f'{p.x},{p.y}' for p in coords)
-    url = f'{OSRM_BASE_URL}/{service}/v1/driving/{path}?{urllib.parse.urlencode(params)}'
+    path = ";".join(f"{p.x},{p.y}" for p in coords)
+    url = f"{OSRM_BASE_URL}/{service}/v1/driving/{path}?{urllib.parse.urlencode(params)}"
     with urllib.request.urlopen(url, timeout=30) as response:
         payload = json.load(response)
-    if payload.get('code') != 'Ok':
-        raise RoutingError(f'OSRM {service} returned {payload.get("code")}')
+    if payload.get("code") != "Ok":
+        raise RoutingError(f"OSRM {service} returned {payload.get('code')}")
     return payload
 
 
@@ -39,14 +39,15 @@ def road_distance(origin: Point, destination: Point) -> dict:
         dict: `distance_km`, `duration_min`, and `geometry` ([lon, lat] pairs) for maps.
     """
     payload = _osrm(
-        'route', [origin, destination],
-        {'overview': 'simplified', 'geometries': 'geojson'},
+        "route",
+        [origin, destination],
+        {"overview": "simplified", "geometries": "geojson"},
     )
-    route = payload['routes'][0]
+    route = payload["routes"][0]
     return {
-        'distance_km': round(route['distance'] / 1000, 1),
-        'duration_min': round(route['duration'] / 60, 1),
-        'geometry': route['geometry']['coordinates'],
+        "distance_km": round(route["distance"] / 1000, 1),
+        "duration_min": round(route["duration"] / 60, 1),
+        "geometry": route["geometry"]["coordinates"],
     }
 
 
@@ -65,24 +66,23 @@ def plan_trip_stops(stops: list[dict]) -> dict:
             `geometry` for map rendering.
     """
     if len(stops) < 2:
-        raise ValueError('a trip needs at least two stops')
+        raise ValueError("a trip needs at least two stops")
 
     payload = _osrm(
-        'trip', [s['point'] for s in stops],
+        "trip",
+        [s["point"] for s in stops],
         {
-            'source': 'first',
-            'roundtrip': 'false',
-            'overview': 'simplified',
-            'geometries': 'geojson',
+            "source": "first",
+            "roundtrip": "false",
+            "overview": "simplified",
+            "geometries": "geojson",
         },
     )
-    trip = payload['trips'][0]
-    order = sorted(
-        range(len(stops)), key=lambda i: payload['waypoints'][i]['waypoint_index']
-    )
+    trip = payload["trips"][0]
+    order = sorted(range(len(stops)), key=lambda i: payload["waypoints"][i]["waypoint_index"])
     return {
-        'ordered_stops': [stops[i] for i in order],
-        'total_km': round(trip['distance'] / 1000, 1),
-        'total_min': round(trip['duration'] / 60, 1),
-        'geometry': trip['geometry']['coordinates'],
+        "ordered_stops": [stops[i] for i in order],
+        "total_km": round(trip["distance"] / 1000, 1),
+        "total_min": round(trip["duration"] / 60, 1),
+        "geometry": trip["geometry"]["coordinates"],
     }
