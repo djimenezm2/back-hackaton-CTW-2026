@@ -274,6 +274,10 @@ def record_actionable_find(observation: Observation, requirements: list) -> None
         node at all, so crediting the job would throw away everything the broadest and most
         valuable pass discovers.
 
+        A node that produces something is taken out of `exhausted`, because an emergency
+        moves: a municipality nobody was posting about at midnight is the story at dawn, and a
+        frontier that could only ever shrink would never look there again.
+
         This is also the other half of `yield_rate`, and it arrives long after the harvest
         that earned it — the post has to be extracted, geocoded and ingested first. That lag
         is why the number is a running total rather than something derived per run: when a
@@ -297,7 +301,11 @@ def record_actionable_find(observation: Observation, requirements: list) -> None
             node.actionable_items += count
             node.last_useful_find_at = timezone.now()
             node.refresh_yield_rate()
-            node.save(update_fields=["actionable_items", "last_useful_find_at", "yield_rate"])
+            fields = ["actionable_items", "last_useful_find_at", "yield_rate"]
+            if node.status == NodeStatus.EXHAUSTED:
+                node.status = NodeStatus.ACTIVE
+                fields.append("status")
+            node.save(update_fields=fields)
 
 
 def _node_to_credit(observation: Observation, requirement) -> FrontierNode | None:

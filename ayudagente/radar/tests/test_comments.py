@@ -34,7 +34,8 @@ class CommentsBase(TestCase):
         self,
         platform_id: str,
         *,
-        engagement: int = 100,
+        likes: int = 100,
+        replies: int = 20,
         classification: str = ExtractionClass.NEED,
         platform: str = Platform.TIKTOK,
         is_reply: bool = False,
@@ -45,7 +46,7 @@ class CommentsBase(TestCase):
             platform=platform,
             platform_id=platform_id,
             permalink=f"https://www.tiktok.com/@x/video/{platform_id}",
-            metrics={"likes": engagement, "comments": 0},
+            metrics={"likes": likes, "comments": replies},
             is_reply=is_reply,
         )
         if classification:
@@ -61,15 +62,22 @@ class CommentsBase(TestCase):
 
 
 class SelectionTests(CommentsBase):
-    def test_the_most_engaged_actionable_post_comes_first(self):
-        self._post("1", engagement=10)
-        loud = self._post("2", engagement=900)
+    def test_the_post_people_answered_outranks_the_one_they_applauded(self):
+        # Engagement ranking picked press and entertainment, whose replies are reaction
+        viral = self._post("1", likes=200_000, replies=2_000)
+        conversation = self._post("2", likes=500, replies=150)
 
-        self.assertEqual(worth_reading(self.event, Platform.TIKTOK).first(), loud)
+        self.assertEqual(list(worth_reading(self.event, Platform.TIKTOK)), [conversation, viral])
+
+    def test_a_tiny_post_does_not_win_on_a_ratio_computed_from_nothing(self):
+        self._post("1", likes=1, replies=2)
+        real = self._post("2", likes=500, replies=150)
+
+        self.assertEqual(worth_reading(self.event, Platform.TIKTOK).first(), real)
 
     def test_a_quiet_post_is_still_read(self):
-        # It may be the one person offering a truck; engagement orders, it never excludes
-        self._post("1", engagement=0)
+        # It may be the one person offering a truck; the score orders, it never excludes
+        self._post("1", likes=0, replies=0)
 
         self.assertTrue(worth_reading(self.event, Platform.TIKTOK).exists())
 
@@ -89,19 +97,19 @@ class SelectionTests(CommentsBase):
 
         self.assertFalse(worth_reading(self.event, Platform.TIKTOK).exists())
 
-    def test_engagement_is_what_ranks_not_what_the_post_itself_yielded(self):
-        quiet_offer = self._post("1", engagement=10, classification=ExtractionClass.OFFER)
-        loud_offer = self._post("2", engagement=800, classification=ExtractionClass.OFFER)
+    def test_ranking_reads_the_response_not_what_the_post_itself_yielded(self):
+        applauded = self._post("1", likes=800, replies=20, classification=ExtractionClass.OFFER)
+        answered = self._post("2", likes=100, replies=60, classification=ExtractionClass.OFFER)
 
         ranked = list(worth_reading(self.event, Platform.TIKTOK))
 
-        self.assertEqual(ranked, [loud_offer, quiet_offer])
+        self.assertEqual(ranked, [answered, applauded])
 
 
 class QueueTests(CommentsBase):
     def test_a_pull_batches_several_posts_into_one_job(self):
         for index in range(POSTS_PER_JOB + 2):
-            self._post(str(index), engagement=100 + index)
+            self._post(str(index), likes=100, replies=10 + index)
 
         self.assertEqual(queue_comment_pulls(self.event), 1)
 
@@ -117,11 +125,11 @@ class QueueTests(CommentsBase):
 
         self.assertEqual(queue_comment_pulls(self.event), 0)
 
-    def test_a_new_engaged_post_earns_its_own_pull(self):
+    def test_a_newly_read_post_earns_its_own_pull(self):
         self._post("1")
         queue_comment_pulls(self.event)
 
-        self._post("2", engagement=500)
+        self._post("2", likes=500)
 
         self.assertEqual(queue_comment_pulls(self.event), 1)
 

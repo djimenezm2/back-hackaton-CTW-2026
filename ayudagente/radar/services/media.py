@@ -27,7 +27,7 @@ import httpx
 from django.conf import settings
 from django.db.models import QuerySet
 
-from ayudagente.radar.models import Media
+from ayudagente.radar.models import Media, Observation
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +116,32 @@ def download(media: Media, client: httpx.Client) -> bool:
     media.size_bytes = len(payload)
     media.save(update_fields=["blob_path", "sha256", "size_bytes"])
     return True
+
+
+def fetch_media_for(observation: Observation) -> int:
+    """
+    Make sure one post's images are on disk before anything reads it.
+
+    Args:
+        observation (Observation): The post about to be extracted.
+
+    Returns:
+        int: Files stored. Zero when there were none, or when every URL had already expired.
+
+    Note:
+        Called from the pipeline rather than left to a separate pass, because the ordering is
+        the whole point: the extractor inlines stored copies, and a platform URL expires within
+        hours of the harvest. A post read before its photo landed is read as text forever.
+    """
+    rows = list(Media.objects.filter(observation=observation, blob_path="").exclude(source_url=""))
+    if not rows:
+        return 0
+
+    stored = 0
+    with httpx.Client(timeout=DOWNLOAD_TIMEOUT) as client:
+        for media in rows:
+            stored += int(download(media, client))
+    return stored
 
 
 def download_pending(event_id: int | None = None, limit: int | None = None) -> Downloaded:

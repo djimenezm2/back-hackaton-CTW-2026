@@ -384,9 +384,18 @@ class Ingestor:
             `times_seen` is the confidence signal: a number written across five posts is
             almost certainly real, one appearing once may be an extraction slip. So a repeat
             increments rather than inserting.
+
+            A handle is stored without its `@` and carries the platform of the post it was
+            read in. Both are what turns a username into something tappable: without the
+            platform `contact_link` has no domain to build and returns nothing, which is how
+            a live event ended up holding 79 accounts a citizen could read but not open. The
+            platform is a guess — an X post can cite an Instagram account — and a profile URL
+            that sometimes misses beats a username that never opens.
         """
         for contact in contacts:
             value = contact.value.strip()
+            if contact.kind == ContactKind.HANDLE:
+                value = value.lstrip("@")
             if not value:
                 continue
             point, created = ContactPoint.objects.get_or_create(
@@ -394,8 +403,11 @@ class Ingestor:
                 kind=contact.kind,
                 value=value[:300],
                 defaults={
-                    "raw_value": value[:300],
+                    "raw_value": contact.value.strip()[:300],
                     "payment_network": contact.network[:40],
+                    "platform": (
+                        observation.platform if contact.kind == ContactKind.HANDLE else ""
+                    ),
                     "discovered_in": observation,
                     "confidence": 0.6,
                 },

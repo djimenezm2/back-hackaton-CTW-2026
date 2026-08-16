@@ -24,7 +24,7 @@ Note:
 
 import logging
 
-from django.db.models import IntegerField, QuerySet
+from django.db.models import ExpressionWrapper, FloatField, IntegerField, QuerySet
 from django.db.models.functions import Cast, Coalesce
 
 from ayudagente.radar.choices import (
@@ -44,6 +44,9 @@ POSTS_PER_JOB = 5
 
 COMMENTS_PER_POST = 100
 
+# Damps the ratio of posts too small for it to mean anything, without excluding them
+SMOOTHING = 50
+
 ACTIONABLE = (ExtractionClass.NEED, ExtractionClass.OFFER, ExtractionClass.BOTH)
 
 
@@ -56,14 +59,22 @@ def worth_reading(event: Event, platform: str) -> QuerySet:
         platform (str): A `Platform` value.
 
     Returns:
-        QuerySet[Observation]: Most engaged first, excluding posts already pulled and
+        QuerySet[Observation]: Most conversational first, excluding posts already pulled and
             comments themselves.
 
     Note:
-        Ranked by engagement, never filtered by it. A quiet post may still be the one person
-        offering a truck, and refusing to read its replies to save a few cents is the kind of
-        saving that costs the thing the system exists for. Order decides what is read first,
-        not what is read at all.
+        Ranked by how much of the response is *reply* rather than applause, never filtered by
+        it. A quiet post may still be the one person offering a truck, so order decides what is
+        read first, not what is read at all.
+
+        Ranking by raw engagement was measured and it was wrong. It selected the posts with the
+        widest audience, which on every platform means press and entertainment, and their
+        replies are public reaction: 200 comments pulled that way were 80% discards against 36%
+        for search, and 3% of what they produced was corroborated against 21%. Reach and
+        conversation are different things and the system wants the second.
+
+        Smoothed, so a post with two likes and one reply does not outrank a neighbourhood
+        thread with a hundred of each on a ratio computed from nothing.
 
         Replies are excluded as sources. Reading the replies of a reply is a thread walk, which
         is `HarvestTarget.THREAD` and a different decision.
@@ -72,6 +83,9 @@ def worth_reading(event: Event, platform: str) -> QuerySet:
         event=event, target_kind=HarvestTarget.COMMENTS, platform=platform
     ).values_list("actor_input__postURLs", flat=True)
     pulled = {url for batch in already if batch for url in batch}
+
+    replies = Coalesce(Cast("metrics__comments", IntegerField()), 0)
+    likes = Coalesce(Cast("metrics__likes", IntegerField()), 0)
 
     return (
         Observation.objects.filter(
@@ -83,10 +97,12 @@ def worth_reading(event: Event, platform: str) -> QuerySet:
         .exclude(permalink="")
         .exclude(permalink__in=pulled)
         .annotate(
-            engagement=Coalesce(Cast("metrics__comments", IntegerField()), 0)
-            + Coalesce(Cast("metrics__likes", IntegerField()), 0)
+            conversation=ExpressionWrapper(
+                replies * 1.0 / (replies + likes + SMOOTHING), output_field=FloatField()
+            ),
+            replies=replies,
         )
-        .order_by("-engagement")
+        .order_by("-conversation", "-replies")
     )
 
 
@@ -125,8 +141,8 @@ def queue_comment_pulls(event: Event, limit: int | None = None) -> int:
             actor_input=build_comment_input(platform, permalinks, COMMENTS_PER_POST),
             decided_by=DecisionSource.RULE,
             rationale=(
-                f"Replies under {len(posts)} engaged {platform} posts, where the affected "
-                f"write. A search returns what ranks; the asking happens one level down."
+                f"Replies under {len(posts)} {platform} posts people answered rather than "
+                f"applauded. A search returns what ranks; the asking happens one level down."
             ),
             status=JobStatus.PENDING,
         )

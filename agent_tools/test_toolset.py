@@ -88,7 +88,7 @@ class RegistryTests(TestCase):
         # A tool that skips the argument would silently answer about every emergency
         for tool in ALL_TOOLS:
             with self.subTest(tool=tool.name):
-                self.assertIn(EVENT_ARG, tool.args_schema.model_fields)
+                self.assertIn(EVENT_ARG, tool.args)
 
 
 class EventBindingTests(TestCase):
@@ -294,7 +294,9 @@ class ActorContactsToolTests(TestCase):
     def test_how_trustworthy_a_detail_is_travels_with_it(self):
         self._contact(ContactKind.PHONE, "+573001112233", times_seen=1)
 
-        row = get_actor_contacts.invoke({"actor_id": self.actor.id})["contacts"][0]
+        row = get_actor_contacts.invoke({"event_id": self.event.id, "actor_id": self.actor.id})[
+            "contacts"
+        ][0]
 
         self.assertEqual(row["times_seen"], 1)
         self.assertFalse(row["verified"])

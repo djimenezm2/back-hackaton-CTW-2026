@@ -33,7 +33,9 @@ from ayudagente.radar.services.extraction import Extractor
 from ayudagente.radar.services.frontier import record_actionable_find
 from ayudagente.radar.services.harvest import HarvestNotConfigured, run_harvest_job
 from ayudagente.radar.services.ingest import Ingested, Ingestor
+from ayudagente.radar.services.media import fetch_media_for
 from ayudagente.radar.services.pacing import Verdict, should_decide
+from ayudagente.radar.services.promotion import promote_accounts, retire_exhausted
 
 logger = logging.getLogger(__name__)
 
@@ -72,12 +74,18 @@ def process_observation(self, observation_id: int, *, force: bool = False) -> di
         Safe to run twice. Extraction returns the stored reading, and ingest is skipped when
         the observation already produced requirements — otherwise a retry would duplicate
         every requirement the first attempt had already written.
+
+        Images are fetched first, and the order is load-bearing. The extractor inlines our own
+        stored copies, so a post read before its photo reached disk goes through as text only
+        — and the platform URL it would have come from expires within hours, so there is no
+        second chance. A live run lost the images of 321 posts of 590 that way.
     """
     observation = Observation.objects.select_related("event").get(pk=observation_id)
 
     if not force and Requirement.objects.filter(evidence=observation).exists():
         return {"observation": observation_id, "skipped": "already ingested"}
 
+    fetch_media_for(observation)
     extraction = Extractor().run(observation, force=force)
     outcome: Ingested = Ingestor().ingest(extraction)
     record_actionable_find(observation, outcome.requirements)
@@ -252,11 +260,18 @@ def run_tick() -> dict:
         Comment pulls are queued mechanically, between the two. Choosing which post to read
         replies under needs to know what the post said, and the frontier agent never sees a
         post — so that decision cannot be its.
+
+        The frontier is reshaped before the agent reads it, not after. Promotion and retirement
+        run on counters the previous round already wrote, so doing them first means the agent
+        sees the accounts the sweep just proved and stops being offered the places that went
+        quiet — a round late is a round spent on a scoreboard that was already out of date.
     """
     outcomes = {}
     for event in Event.objects.filter(status=EventStatus.ACTIVE):
         dispatch_pending(event.pk)
         queue_comment_pulls(event)
+        promote_accounts(event)
+        retire_exhausted(event)
         outcomes[event.pk] = run_round(event.pk)
     logger.info("tick covered %s active events", len(outcomes))
     return {"events": outcomes}

@@ -37,6 +37,7 @@ from ayudagente.radar.services.matching import (
 )
 from ayudagente.radar.services.media import download_pending
 from ayudagente.radar.services.outreach import draft_outreach, match_participants
+from ayudagente.radar.services.promotion import promote_accounts, retire_exhausted
 from ayudagente.radar.services.requirements import (
     find_admin_units,
     find_requirements,
@@ -73,6 +74,7 @@ __all__ = [
     "persist_items",
     "places_by_zone",
     "plan_trip_stops",
+    "promote_accounts",
     "propose_match",
     "queue_comment_pulls",
     "record_actionable_find",
@@ -81,6 +83,7 @@ __all__ = [
     "resolve_resource",
     "resource_catalog",
     "resource_family",
+    "retire_exhausted",
     "road_distance",
     "routable",
     "run_harvest_job",

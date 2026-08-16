@@ -16,6 +16,7 @@ from ayudagente.radar.choices import (
     DecisionSource,
     HarvestTarget,
     JobStatus,
+    NodeStatus,
     Platform,
     Zone,
 )
@@ -139,6 +140,18 @@ class RecordActionableFindTests(FrontierBase):
         self.assertEqual(self.node.actionable_items, 3)
         self.assertEqual(self.node.yield_rate, 3.0)  # 3 per 100 harvested
         self.assertIsNotNone(self.node.last_useful_find_at)
+
+    def test_a_retired_place_that_produces_again_comes_back(self):
+        # An emergency moves: a municipality nobody posted about at midnight is dawn's story
+        self.node.status = NodeStatus.EXHAUSTED
+        self.node.save(update_fields=["status"])
+        job = self._job()
+        record_harvest(job, items_new=100)
+
+        record_actionable_find(self._observation(job), self._requirements(1))
+
+        self.node.refresh_from_db()
+        self.assertEqual(self.node.status, NodeStatus.ACTIVE)
 
     def test_an_exact_administrative_match_wins(self):
         job = self._job()

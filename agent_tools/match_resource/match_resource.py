@@ -13,6 +13,7 @@ Note:
     listing and a recommendation.
 """
 
+from django.utils import timezone
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
@@ -72,6 +73,15 @@ class MatchResourceInput(BaseModel):
         default=None,
         description="With a location, discard anything farther than this many kilometres.",
     )
+    sort: str = Field(
+        default="urgency",
+        description=(
+            "'urgency' for what needs answering soonest, 'recent' for what was posted last. "
+            "Use 'recent' whenever somebody asks what is new or what is happening now — "
+            "urgency says how bad it is, not how fresh. A place given overrides both and "
+            "sorts by distance."
+        ),
+    )
     limit: int = Field(default=DEFAULT_LIMIT, description=f"Rows to return, max {MAX_LIMIT}.")
 
 
@@ -88,6 +98,11 @@ def _serialize(requirement, network: Network, origin) -> dict:
         `source_post` is the same idea taken to its end: the strongest thing to hand someone
         who has to judge an unconfirmed claim is the post it came from, so they can read it
         themselves.
+
+        `hours_ago` travels beside the timestamp because the agent has to *say* it, and asking
+        a model to subtract two dates in its head is how "hace tres horas" becomes wrong. An
+        answer with no age in it cannot be judged: during an emergency a collection point from
+        four days ago and one from this morning are different facts.
     """
     location = requirement.location
     still = network.still_needed(requirement)
@@ -108,12 +123,15 @@ def _serialize(requirement, network: Network, origin) -> dict:
         "confirmed": requirement.status != RequirementStatus.UNVERIFIED,
         "sources": requirement.evidence.count(),
         "actor_verified": requirement.actor.verified,
+        "last_seen_at": _iso(requirement.last_seen_at),
+        "hours_ago": _hours_ago(requirement.last_seen_at),
     }
 
-    evidence = requirement.evidence.first()
+    evidence = requirement.evidence.order_by("-posted_at").first()
     if evidence is not None:
         row["source_post"] = evidence.permalink
         row["source_platform"] = evidence.platform
+        row["posted_at"] = _iso(evidence.posted_at)
         if evidence.author_handle:
             row["source_author"] = evidence.author_handle
     if requirement.free_text:
@@ -139,6 +157,7 @@ def match_resource(
     lat: float | None = None,
     lon: float | None = None,
     radius_km: float | None = None,
+    sort: str = "urgency",
     limit: int = DEFAULT_LIMIT,
 ) -> dict:
     """
@@ -218,6 +237,10 @@ def match_resource(
 
     if origin is not None:
         open_candidates.sort(key=lambda c: c.get("distance_km", 1e9))
+    elif sort == "recent":
+        open_candidates.sort(
+            key=lambda c: c.get("hours_ago") if c.get("hours_ago") is not None else 1e9
+        )
     else:
         open_candidates.sort(key=lambda c: URGENCY_RANK.get(c["urgency"], 9))
 
@@ -226,6 +249,25 @@ def match_resource(
         "looking_for": "needs" if offering else "offers",
         "count": min(len(open_candidates), limit),
         "truncated": len(open_candidates) > limit,
+        "sorted_by": "distance" if origin is not None else sort,
         "fully_covered_hidden": len(candidates) - len(open_candidates),
         "candidates": open_candidates[:limit],
     }
+
+
+def _iso(moment) -> str | None:
+    """The timestamp as an ISO string, or None when nothing recorded one."""
+    return moment.isoformat() if moment is not None else None
+
+
+def _hours_ago(moment) -> float | None:
+    """
+    How old this is, in hours.
+
+    Note:
+        Computed here rather than left to the model. A date subtraction done in prose is a
+        date subtraction done wrong, and the age is the part the person actually hears.
+    """
+    if moment is None:
+        return None
+    return round((timezone.now() - moment).total_seconds() / 3600, 1)
