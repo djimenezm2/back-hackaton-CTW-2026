@@ -8,25 +8,29 @@ from ayudagente.radar.choices import AdminLevel
 
 class AdminUnit(models.Model):
     """
-    An official administrative division of the country (Colombia's DIVIPOLA).
+    An administrative division of any country, loaded from a global gazetteer (GeoNames).
 
-    Loaded once and shared by every event. It is the backbone of geographic scoping: the
-    agent widens its search by walking real entities instead of inventing place names, and
-    every frontier node points at one of these.
+    It is the backbone of geographic scoping, and it does something a geocoder cannot: it
+    *enumerates*. Google resolves a string you already have into coordinates; this answers
+    "which searchable places exist in this country", which is what the frontier iterates over.
+    Walking real entities is also what keeps the agent from inventing place names.
 
     Note:
-        The hierarchy is department → municipality → settlement, via `parent`. The
-        `centroid` lets us rank municipalities by distance to the epicenter to build the
-        cadence rings without geocoding anything.
+        The hierarchy is country → admin_1 → admin_2 → admin_3 via `parent`, which is the
+        GeoNames convention and therefore works the same in Colombia, Indonesia or Turkey.
+        The `centroid` lets us rank places by distance to the epicenter without geocoding
+        anything.
 
     See:
         `ayudagente.radar.models.frontier.FrontierNode`,
         `ayudagente.radar.models.actors.Location`.
     """
 
-    code = models.CharField(max_length=8, unique=True)
-    name = models.CharField(max_length=120)
-    name_norm = models.CharField(max_length=120, db_index=True)  # unaccented, lowercased
+    geonames_id = models.IntegerField(unique=True, null=True, blank=True)
+    country_code = models.CharField(max_length=2, db_index=True)  # ISO 3166-1 alpha-2
+    code = models.CharField(max_length=20)  # national code where one exists
+    name = models.CharField(max_length=200)
+    name_norm = models.CharField(max_length=200, db_index=True)  # unaccented, lowercased
     level = models.CharField(max_length=20, choices=AdminLevel.choices)
     parent = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.PROTECT, related_name="children"
@@ -35,10 +39,15 @@ class AdminUnit(models.Model):
     population = models.IntegerField(null=True, blank=True)
 
     class Meta:
-        indexes = [models.Index(fields=["level", "name_norm"])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["country_code", "level", "code"], name="admin_unit_unique"
+            )
+        ]
+        indexes = [models.Index(fields=["country_code", "level", "name_norm"])]
 
     def __str__(self) -> str:
-        return f"{self.name} ({self.get_level_display()})"
+        return f"{self.name} ({self.country_code}/{self.level})"
 
 
 class ResourceType(models.Model):

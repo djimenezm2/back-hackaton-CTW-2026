@@ -4,6 +4,10 @@ Enumerations shared across every model.
 They live in one module because several cross layer boundaries: `Platform` is used by the
 harvest layer, the observation layer and the contact layer, and a divergence between those
 copies would break queries silently.
+
+Nothing here is country-specific. Administrative levels follow the GeoNames convention so a
+single catalog covers every country, and payment rails are one generic kind with the network
+stored as data — Nequi in Colombia, Pix in Brazil, M-Pesa in Kenya.
 """
 
 from django.db import models
@@ -33,14 +37,17 @@ class EventStatus(models.TextChoices):
 
 
 class AdminLevel(models.TextChoices):
-    DEPARTMENT = "department", "Department"
-    MUNICIPALITY = "municipality", "Municipality"
-    SETTLEMENT = "settlement", "Settlement"
+    """GeoNames administrative levels, so one catalog serves every country."""
+
+    COUNTRY = "country", "Country"
+    ADMIN_1 = "admin_1", "First level (state, department, province)"
+    ADMIN_2 = "admin_2", "Second level (municipality, county, district)"
+    ADMIN_3 = "admin_3", "Third level (settlement, locality, ward)"
 
 
 class DecisionSource(models.TextChoices):
     AGENT = "agent", "Frontier agent"
-    RULE = "rule", "Cadence rule"
+    RULE = "rule", "Scheduling rule"
     MANUAL = "manual", "Manual"
 
 
@@ -51,6 +58,15 @@ class JobStatus(models.TextChoices):
     EMPTY = "empty", "No results"
     FAILED = "failed", "Failed"
     ACTOR_DOWN = "actor_down", "Actor down"
+
+
+class HarvestTarget(models.TextChoices):
+    """What a job points at. Searching a place is cheap; pulling a profile is the deep pass."""
+
+    SEARCH = "search", "Keyword search over a place"
+    PROFILE = "profile", "One account's timeline"
+    THREAD = "thread", "Replies under one post"
+    COMMENTS = "comments", "Comments on one post"
 
 
 class MediaKind(models.TextChoices):
@@ -69,9 +85,12 @@ class ExtractionClass(models.TextChoices):
 
 
 class LocationPrecision(models.TextChoices):
-    DEPARTMENT = "department", "Department"
-    MUNICIPALITY = "municipality", "Municipality"
-    SETTLEMENT = "settlement", "Settlement"
+    """Ordered coarse to fine. Matching compares positions, so order is load-bearing."""
+
+    COUNTRY = "country", "Country"
+    ADMIN_1 = "admin_1", "First level"
+    ADMIN_2 = "admin_2", "Second level"
+    ADMIN_3 = "admin_3", "Third level"
     NEIGHBORHOOD = "neighborhood", "Neighborhood or rural district"
     STREET_ADDRESS = "street_address", "Street address"
     EXACT_POINT = "exact_point", "Exact point"
@@ -79,7 +98,7 @@ class LocationPrecision(models.TextChoices):
 
 class GeocodeSource(models.TextChoices):
     GOOGLE = "google", "Google Geocoding"
-    DIVIPOLA = "divipola", "DIVIPOLA catalog"
+    GAZETTEER = "gazetteer", "Administrative gazetteer (GeoNames)"
     PLATFORM = "platform", "Platform metadata"
     MANUAL = "manual", "Manual"
 
@@ -127,11 +146,7 @@ class ContactKind(models.TextChoices):
     EMAIL = "email", "Email"
     WEBSITE = "website", "Website"
     FORM = "form", "Web form"
-    NEQUI = "nequi", "Nequi"
-    DAVIPLATA = "daviplata", "Daviplata"
-    BANK_ACCOUNT = "bank_account", "Bank account"
-    BRE_B_KEY = "bre_b_key", "Bre-B key"
-    CROWDFUNDING = "crowdfunding", "Crowdfunding link"
+    PAYMENT = "payment", "Payment account"
     STREET_ADDRESS = "street_address", "Street address"
 
 
@@ -172,37 +187,39 @@ class MatchStatus(models.TextChoices):
     DISCARDED = "discarded", "Discarded"
 
 
+class OutreachPurpose(models.TextChoices):
+    """Why a message exists. Not every message links two parties."""
+
+    CONNECT = "connect", "Introduce a need to an offer"
+    ANSWER = "answer", "Answer someone who asked where to go or how to help"
+    VERIFY = "verify", "Confirm a need or offer is still live"
+    REQUEST_DETAIL = "request_detail", "Ask for the location or contact the post omitted"
+
+
 class OutreachChannel(models.TextChoices):
     EMAIL = "email", "Email"
-    DIRECT_MESSAGE = "direct_message", "Direct message"
-    COMMENT_REPLY = "comment_reply", "Comment reply"
     WHATSAPP = "whatsapp", "WhatsApp"
+    COMMENT_REPLY = "comment_reply", "Reply to a post or comment"
+    DIRECT_MESSAGE = "direct_message", "Direct message"
     PHONE_CALL = "phone_call", "Phone call"
 
 
 class OutreachStatus(models.TextChoices):
-    DRAFT = "draft", "Draft"
-    APPROVED = "approved", "Approved"
-    SENT = "sent", "Sent"
-    BOUNCED = "bounced", "Bounced"
-    ANSWERED = "answered", "Answered"
-    FAILED = "failed", "Failed"
-    CANCELLED = "cancelled", "Cancelled"
-
-
-class Ring(models.TextChoices):
-    T0 = "T0", "T0 · Epicenter"
-    T1 = "T1", "T1 · Affected departments"
-    T2 = "T2", "T2 · Supply hubs"
-    T3 = "T3", "T3 · National long tail"
+    DRAFT = "draft", "Drafted, waiting for a human"
+    DISPATCHED = "dispatched", "A human opened the link and sent it"
+    ANSWERED = "answered", "The recipient replied"
+    DISMISSED = "dismissed", "A human decided not to send it"
+    FAILED = "failed", "Could not be delivered"
 
 
 class Zone(models.TextChoices):
-    IMPACT = "impact", "Impact zone"
-    SUPPORT = "support", "Support zone"
+    """Decides which query axis runs, so it is structural rather than descriptive."""
+
+    IMPACT = "impact", "Impact zone — search for demand"
+    SUPPORT = "support", "Support zone — search for supply"
 
 
 class NodeStatus(models.TextChoices):
     ACTIVE = "active", "Active"
-    EXHAUSTED = "exhausted", "Exhausted"
+    EXHAUSTED = "exhausted", "Exhausted — produced nothing useful"
     PAUSED = "paused", "Paused"

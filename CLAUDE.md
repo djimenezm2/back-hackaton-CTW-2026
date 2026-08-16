@@ -59,6 +59,29 @@ payoff of the fixed route is concrete: a 429 from Azure retries one task instead
 an agent's message history, 50 observations process in parallel under a concurrency cap, and a
 bad field is diagnosed by looking at one step's output rather than re-reading a trace.
 
+## Scope is global
+
+The pipeline is not Colombia-specific. `AdminUnit` is loaded from GeoNames and uses
+`country → admin_1 → admin_2 → admin_3`, `Event` carries `country_code` and `languages`, and
+payment rails are one `ContactKind.PAYMENT` with the network as data (nequi, pix, mpesa, upi).
+
+What does *not* transfer is the calibration: which platform yields what, which queries work,
+what an actionable item costs. Those numbers come from one Spanish-language Colombian
+earthquake and have to be re-measured per country and language.
+
+## Cost is recorded, never used to decide
+
+Sweeping is cheap — you batch toponyms into one query per platform × zone × axis, not one
+query per municipality. The pilot covered a country in ten queries for $0.10. So there is no
+budget to allocate, and `FrontierNode` has no cost-weighted score.
+
+`Event.spent_usd` and `HarvestJob.actual_cost_usd` are recorded because Apify returns them
+free and a runaway loop should be visible. Nothing reads them to make a decision. What decides
+is `yield_rate`: keep looking where the content is good, stop where it is noise.
+
+The one allocation decision that survives is **depth**: `HarvestJob.target_kind` separates a
+cheap `search` from a `profile`, `thread` or `comments` pull.
+
 ## Invariants
 
 Breaking any of these is a bug even when tests pass.
@@ -67,13 +90,15 @@ Breaking any of these is a bug even when tests pass.
 2. `Extraction` never writes into `Observation`.
 3. A `Match` past `proposed` is never rewritten by the matching pass — a human is already
    involved.
-4. `ContactPoint.allows_automatic_outreach()` fails closed: email to organizations at high
-   confidence, nothing else. Anything not explicitly permitted returns False.
+4. **Nothing is ever sent automatically.** Every channel resolves to a deep link a human
+   clicks. `Outreach.target_url` plus the body is the entire dispatch mechanism.
 5. `Outreach` is only ever created through its idempotency key.
 6. Actor merges set `merged_into`; they never delete.
 7. Every `Location` carries its precision, and matching enforces a minimum.
-8. Every scraping query carries a Colombian toponym, or it pulls in other countries'
-   earthquakes.
+8. A `FrontierNode` watches exactly one of an `admin_unit` or an `actor`.
+9. Every scraping query carries a toponym from the event's country, or it pulls in other
+   countries' disasters.
+10. Cost is recorded, never used to decide.
 
 ## Identity resolution is a cascade
 
@@ -143,12 +168,18 @@ Apify is marked `live` and excluded, so `make test LIVE=1` is the opt-in.
 
 ## Status
 
-**Built:** data model (15 models, migrated), tooling, docker stack.
+**Built:** data model (15 models, migrated), the deterministic service layer
+(`services/matching.py`, `outreach.py`, `requirements.py`, `routing.py`), event endpoints,
+tooling, docker stack.
 
-**Not built yet:** admin registrations, Celery wiring, the harvest/extraction/geocoding/matching
-tasks, the frontier agent, the API. Each is its own slice.
+**Not built yet:** admin registrations, Celery wiring, the harvest/extraction/geocoding tasks,
+the GeoNames loader, the frontier agent. Each is its own slice.
 
 **Known gap to respect when building extraction:** `Requirement.evidence` is many-to-many to
 `Observation` because one post can legitimately produce several requirements. A post listing
 three collection centers produces three. Code that assumes one-post-one-requirement will
 silently drop two of them.
+
+**Not validated:** Instagram/Facebook stories. The pilot covered posts, comments and accounts;
+stories are ephemeral and usually need an authenticated session, so treat any story support as
+unproven until someone spends real credit on it.

@@ -87,7 +87,7 @@ class FindRequirementsTests(TestCase):
         actor = make_actor(self.event, 'Chocó genérico')
         make_requirement(
             self.event, actor, self.alimentos,
-            make_location(QUIBDO, 'Chocó', precision=LocationPrecision.DEPARTMENT),
+            make_location(QUIBDO, 'Chocó', precision=LocationPrecision.ADMIN_1),
         )
         results = find_requirements(
             self.event.id, Direction.NEEDS,
@@ -222,7 +222,7 @@ class OutreachTests(TestCase):
         self.assertEqual(first.id, second.id)
         self.assertEqual(second.body, 'hola')  # retry did not overwrite
 
-    def test_automatic_only_for_high_confidence_org_email(self):
+    def test_email_is_offered_before_whatsapp(self):
         org_email = ContactPoint.objects.create(
             actor=self.offer.actor, kind=ContactKind.EMAIL,
             value='ong@pereira.org', raw_value='ong@pereira.org', confidence=0.9,
@@ -231,12 +231,19 @@ class OutreachTests(TestCase):
             actor=self.need.actor, kind=ContactKind.WHATSAPP,
             value='+573001112233', raw_value='300 111 2233', confidence=0.95,
         )
-        self.assertTrue(draft_outreach(self.match, org_email, body='x').automatic)
-        self.assertFalse(draft_outreach(self.match, person_whatsapp, body='x').automatic)
+        email_draft = draft_outreach(self.match, org_email, body='x')
+        whatsapp_draft = draft_outreach(self.match, person_whatsapp, body='x')
+        self.assertLess(
+            email_draft.contact_point.preference_rank(),
+            whatsapp_draft.contact_point.preference_rank(),
+        )
+        # Both are links a human clicks; neither is dispatched by the system.
+        self.assertTrue(email_draft.target_url.startswith('mailto:'))
+        self.assertTrue(whatsapp_draft.target_url.startswith('https://wa.me/'))
 
     def test_non_messaging_contact_kind_rejected(self):
         nequi = ContactPoint.objects.create(
-            actor=self.offer.actor, kind=ContactKind.NEQUI,
+            actor=self.offer.actor, kind=ContactKind.PAYMENT,
             value='3001112233', raw_value='3001112233',
         )
         with self.assertRaises(ValueError):

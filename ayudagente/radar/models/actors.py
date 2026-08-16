@@ -22,7 +22,7 @@ from ayudagente.radar.choices import (
     UnreachableReason,
 )
 
-# Actor kinds that count as organizations for the automatic-outreach policy
+# Actor kinds that count as organizations. Query with `kind__in=ORGANIZATION_KINDS`.
 ORGANIZATION_KINDS = frozenset(
     {
         ActorKind.COLLECTION_CENTER,
@@ -36,7 +36,27 @@ ORGANIZATION_KINDS = frozenset(
     }
 )
 
-MIN_CONFIDENCE_FOR_AUTOMATIC_OUTREACH = 0.8
+# Contact kinds that can actually carry a message. Payment and postal details cannot.
+OUTREACH_CHANNELS = frozenset(
+    {
+        ContactKind.EMAIL,
+        ContactKind.WHATSAPP,
+        ContactKind.HANDLE,
+        ContactKind.FORM,
+        ContactKind.WEBSITE,
+        ContactKind.PHONE,
+    }
+)
+
+# Which channel to offer a human first. Least intrusive and most expected wins.
+CHANNEL_PREFERENCE = (
+    ContactKind.EMAIL,
+    ContactKind.WHATSAPP,
+    ContactKind.HANDLE,
+    ContactKind.FORM,
+    ContactKind.WEBSITE,
+    ContactKind.PHONE,
+)
 
 
 class Location(models.Model):
@@ -111,8 +131,9 @@ class Actor(models.Model):
         `merged_into` keeps duplicates instead of deleting them, so a bad merge can be
         undone. The model will get one wrong eventually.
 
-        `is_organization` is not informational: the automatic-outreach policy depends on
-        it. See `ContactPoint.allows_automatic_outreach`.
+        `is_organization` is derived from `kind` rather than stored, so it cannot go stale
+        and cannot be skipped by `bulk_create`. Filter in SQL with
+        `kind__in=ORGANIZATION_KINDS`.
     """
 
     event = models.ForeignKey("radar.Event", on_delete=models.CASCADE, related_name="actors")
@@ -126,7 +147,6 @@ class Actor(models.Model):
         Location, null=True, blank=True, on_delete=models.SET_NULL, related_name="actors"
     )
 
-    is_organization = models.BooleanField(default=False)
     credibility = models.FloatField(default=0.5)
     credibility_source = models.CharField(
         max_length=20, choices=CredibilitySource.choices, default=CredibilitySource.NONE
@@ -155,9 +175,10 @@ class Actor(models.Model):
     def __str__(self) -> str:
         return f"{self.canonical_name} ({self.get_kind_display()})"
 
-    def save(self, *args, **kwargs):
-        self.is_organization = self.kind in ORGANIZATION_KINDS
-        super().save(*args, **kwargs)
+    @property
+    def is_organization(self) -> bool:
+        """True for centers, nonprofits, companies and public bodies — never for a person."""
+        return self.kind in ORGANIZATION_KINDS
 
     @property
     def is_merged(self) -> bool:
@@ -218,8 +239,12 @@ class ContactPoint(models.Model):
         `times_seen` is a confidence signal: a number appearing across five separate posts
         is almost certainly real; one appearing once may be an extraction hallucination.
 
+        Payment rails are one kind with the network as data, because they are country
+        specific and there is no reason to migrate the schema when the system reaches a new
+        one. The system never moves money — it only surfaces the detail.
+
     See:
-        `allows_automatic_outreach` for the no-human-in-the-loop policy.
+        `preference_rank` for which channel a human gets offered first.
     """
 
     actor = models.ForeignKey(Actor, on_delete=models.CASCADE, related_name="contact_points")
@@ -227,6 +252,9 @@ class ContactPoint(models.Model):
     platform = models.CharField(
         max_length=20, choices=Platform.choices, blank=True
     )  # only meaningful when kind is a platform handle
+    payment_network = models.CharField(
+        max_length=40, blank=True
+    )  # nequi, daviplata, bre_b, pix, mpesa, upi… only when kind is payment
     value = models.CharField(max_length=300, db_index=True)
     raw_value = models.CharField(max_length=300)
 
@@ -260,18 +288,23 @@ class ContactPoint(models.Model):
     def __str__(self) -> str:
         return f"{self.get_kind_display()}: {self.value}"
 
-    def allows_automatic_outreach(self) -> bool:
-        """
-        Decide whether the system may write through this channel without human approval.
+    @property
+    def can_carry_a_message(self) -> bool:
+        """True when this detail is a channel at all. A bank account is not."""
+        return self.reachable and self.kind in OUTREACH_CHANNELS
 
-        Only email to organizations, and only at high confidence. Direct messages, phone
-        and anything aimed at an individual always go through review.
+    def preference_rank(self) -> int:
+        """
+        Rank this channel for the human deciding how to reach the actor.
+
+        Nothing is ever sent automatically, so this orders what the dashboard offers first
+        rather than granting permission. Lower is better; channels that cannot carry a
+        message sort last.
 
         Returns:
-            bool: True only when every condition holds. This fails closed: anything not
-                explicitly allowed returns False, because the default when writing to
-                someone during an emergency has to be not to write.
+            int: Position in `CHANNEL_PREFERENCE`, or a value past the end when the detail
+                is not a usable channel.
         """
-        if not self.reachable or self.confidence < MIN_CONFIDENCE_FOR_AUTOMATIC_OUTREACH:
-            return False
-        return self.kind == ContactKind.EMAIL and self.actor.is_organization
+        if not self.can_carry_a_message:
+            return len(CHANNEL_PREFERENCE)
+        return CHANNEL_PREFERENCE.index(self.kind)

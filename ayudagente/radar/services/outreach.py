@@ -1,13 +1,13 @@
 """
-Drafting outreach: the only door from proposals to a real person's inbox.
+Drafting outreach: the only door from proposals to a real person.
 
-The policy is the model's `allows_automatic_outreach()` and it fails closed — this module
-never widens it. Everything lands as DRAFT; the `automatic` flag only marks messages that
-*may* skip human review, it does not send anything.
+Nothing here sends anything. Every message resolves to a link a human clicks — `wa.me` and
+`mailto:` carry the text, a post permalink does not — so the whole module's job is to write
+the body, pick the channel and build that link exactly once per finding.
 """
 
-from ayudagente.radar.choices import ContactKind, OutreachChannel
-from ayudagente.radar.models import ContactPoint, Match, Outreach
+from ayudagente.radar.choices import ContactKind, OutreachChannel, OutreachPurpose
+from ayudagente.radar.models import ContactPoint, Match, Observation, Outreach, Requirement
 
 CHANNEL_BY_CONTACT_KIND = {
     ContactKind.EMAIL: OutreachChannel.EMAIL,
@@ -17,39 +17,85 @@ CHANNEL_BY_CONTACT_KIND = {
 }
 
 
+def build_target_url(
+    contact_point: ContactPoint,
+    body: str,
+    subject: str = "",
+    in_reply_to: Observation | None = None,
+) -> str:
+    """
+    Build the link the human clicks, prefilled with the text wherever the channel allows it.
+
+    Args:
+        contact_point (ContactPoint): Where the message is going.
+        body (str): Text the model wrote.
+        subject (str): Subject line, used by email only.
+        in_reply_to (Observation | None): Post or comment being answered, when there is one.
+
+    Returns:
+        str: A deep link needing no API, credentials or app review. Falls back to the
+            observation's permalink for channels that cannot be prefilled.
+    """
+    if contact_point.kind == ContactKind.EMAIL:
+        return Outreach.build_mailto_url(contact_point.value, subject, body)
+    if contact_point.kind == ContactKind.WHATSAPP:
+        return Outreach.build_whatsapp_url(contact_point.value, body)
+    return in_reply_to.permalink if in_reply_to else ""
+
+
 def draft_outreach(
     match: Match | None,
     contact_point: ContactPoint,
     body: str,
-    subject: str = '',
-    drafted_by: str = 'agent',
+    subject: str = "",
+    drafted_by: str = "agent",
+    purpose: str = OutreachPurpose.CONNECT,
+    in_reply_to: Observation | None = None,
+    about_requirement: Requirement | None = None,
 ) -> Outreach:
     """
-    Create (idempotently) a draft message to the contact point's actor about a match.
+    Create, idempotently, a draft message to the contact point's actor.
 
-    Retries return the existing row instead of writing twice — the idempotency key is
-    what keeps "ten people already contacted" true rather than approximately true.
+    Args:
+        match (Match | None): The pairing being introduced, when the purpose is to connect.
+        contact_point (ContactPoint): Channel to reach the actor through.
+        body (str): Message text.
+        subject (str): Subject line, email only.
+        drafted_by (str): Which model deployment wrote it.
+        purpose (str): An `OutreachPurpose` value; not every message pairs two parties.
+        in_reply_to (Observation | None): Post or comment being answered.
+        about_requirement (Requirement | None): Need or offer being verified or asked after.
+
+    Returns:
+        Outreach: The existing row on a retry, so "ten people already contacted" stays true
+            rather than approximately true.
+
+    Raises:
+        ValueError: If the contact point cannot carry a message. A bank account is a way to
+            give someone money, not a way to talk to them.
     """
-    channel = CHANNEL_BY_CONTACT_KIND.get(contact_point.kind)
-    if channel is None:
-        raise ValueError(
-            f'contact kind {contact_point.kind!r} is not a messaging channel'
-        )
+    channel = CHANNEL_BY_CONTACT_KIND.get(ContactKind(contact_point.kind))
+    if channel is None or not contact_point.can_carry_a_message:
+        raise ValueError(f"contact kind {contact_point.kind!r} is not a messaging channel")
 
+    anchor = match or in_reply_to or about_requirement
     key = Outreach.build_idempotency_key(
-        contact_point.actor_id, match.id if match else None, channel
+        contact_point.actor_id, purpose, channel, anchor.id if anchor else None
     )
     outreach, _created = Outreach.objects.get_or_create(
         idempotency_key=key,
         defaults={
-            'match': match,
-            'target_actor_id': contact_point.actor_id,
-            'contact_point': contact_point,
-            'channel': channel,
-            'subject': subject,
-            'body': body,
-            'drafted_by': drafted_by,
-            'automatic': contact_point.allows_automatic_outreach(),
+            "match": match,
+            "in_reply_to": in_reply_to,
+            "about_requirement": about_requirement,
+            "target_actor_id": contact_point.actor_id,
+            "contact_point": contact_point,
+            "purpose": purpose,
+            "channel": channel,
+            "subject": subject,
+            "body": body,
+            "target_url": build_target_url(contact_point, body, subject, in_reply_to),
+            "drafted_by": drafted_by,
         },
     )
     return outreach

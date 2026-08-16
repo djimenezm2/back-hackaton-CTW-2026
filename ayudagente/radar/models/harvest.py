@@ -13,6 +13,7 @@ from django.db import models
 from ayudagente.radar.choices import (
     DecisionSource,
     ExtractionClass,
+    HarvestTarget,
     JobStatus,
     MediaKind,
     Platform,
@@ -28,13 +29,17 @@ class HarvestJob(models.Model):
     retried without invoking the model again.
 
     Note:
-        `rationale` stores, in plain text, why the agent picked this municipality, this
-        platform and this budget. It is not needed to run: it is needed to debug, and to
-        show the agent's reasoning on the dashboard.
+        `target_kind` separates the cheap pass from the expensive one. A keyword search over
+        a place costs cents because toponyms are batched into one query; pulling an account's
+        whole timeline, a thread or a post's comments is the deep pass, and that is the only
+        allocation decision worth making.
+
+        `rationale` stores, in plain text, why the agent picked this target. It is not needed
+        to run: it is needed to debug, and to show the agent's reasoning on the dashboard.
 
         The `actor_down` status exists because an Apify Actor can return success with zero
         results while actually being broken. Mistaking that for "no signal here" makes the
-        frontier penalize a municipality that did have information.
+        frontier penalize a place that did have information.
     """
 
     event = models.ForeignKey("radar.Event", on_delete=models.CASCADE, related_name="jobs")
@@ -47,9 +52,11 @@ class HarvestJob(models.Model):
     )
 
     platform = models.CharField(max_length=20, choices=Platform.choices)
+    target_kind = models.CharField(
+        max_length=20, choices=HarvestTarget.choices, default=HarvestTarget.SEARCH
+    )
     apify_actor = models.CharField(max_length=120)
     actor_input = models.JSONField()  # exact payload sent, so a run can be reproduced
-    budget_usd = models.DecimalField(max_digits=6, decimal_places=4)
 
     decided_by = models.CharField(max_length=20, choices=DecisionSource.choices)
     rationale = models.TextField(blank=True)

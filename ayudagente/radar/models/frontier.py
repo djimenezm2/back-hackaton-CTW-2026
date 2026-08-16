@@ -2,54 +2,68 @@
 
 from django.db import models
 
-from ayudagente.radar.choices import NodeStatus, Platform, Ring, Zone
+from ayudagente.radar.choices import NodeStatus, Platform, Zone
+from ayudagente.radar.models.actors import Actor
 
 
 class FrontierNode(models.Model):
     """
-    One searchable cell — a municipality on a platform — with its running performance.
+    One watch target — a place or an account on a platform — with its running quality record.
 
-    This is the only table the agent ever reads. Around fifty rows, roughly two thousand
-    tokens, and it never sees a single post. Reading a scoreboard and deciding where to
-    spend under uncertainty is judgment, which is what the model is good at; extracting a
-    phone number from a caption is a function, which it is not.
+    This is the only table the agent ever reads. A few dozen rows, a couple of thousand
+    tokens, and it never sees a single post. Reading a scoreboard and deciding where to look
+    next is judgment, which is what a model is good at; extracting a phone number from a
+    caption is a function, which it is not.
 
     Note:
-        `score` divides by cost on purpose. Without that divisor the agent burns the budget
-        on expensive platforms that look productive per item but are not per dollar.
+        A node watches either an `admin_unit` or an `actor`, never both and never neither.
+        Places are the broad sweep; accounts are what you follow once one turns out to be a
+        real coordinator, and that is the pass worth deciding about. Both compete for the
+        same attention, so they share one table.
 
-        `last_useful_find_at` drives the freshness decay: a node that has been quiet for
-        hours falls on its own without anyone deciding to demote it.
+        The decision signal is **quality, not cost**. Sweeping is cheap once toponyms are
+        batched into one query, so there is no budget to optimize — what matters is whether
+        a target produces actionable content. A node that yields nothing across several
+        passes goes to `exhausted`; nothing here divides by price.
 
-        A share of the budget must always go to nodes with no history at all. Without
-        forced exploration the agent converges onto what it already knows and never finds
-        the rural district nobody was posting about twenty minutes ago — precisely the case
-        with the highest value.
+        Cadence is not stored. The scheduler derives it from `yield_rate` and
+        `last_useful_find_at` at the moment it runs, so there is no field to keep in sync.
+
+        `is_unexplored` supports forced exploration. A fixed share of every pass must go to
+        targets with no history, or the agent converges onto what it already knows and never
+        finds the rural district nobody was posting about twenty minutes ago — precisely the
+        highest-value case.
     """
 
     event = models.ForeignKey("radar.Event", on_delete=models.CASCADE, related_name="frontier")
     admin_unit = models.ForeignKey(
-        "radar.AdminUnit", on_delete=models.PROTECT, related_name="frontier_nodes"
+        "radar.AdminUnit",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="frontier_nodes",
+    )
+    actor = models.ForeignKey(
+        Actor,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="frontier_nodes",
     )
     platform = models.CharField(max_length=20, choices=Platform.choices)
-    ring = models.CharField(max_length=4, choices=Ring.choices)
     zone = models.CharField(max_length=10, choices=Zone.choices)
 
-    yield_rate = models.FloatField(default=0)  # actionable items per 100 harvested
+    yield_rate = models.FloatField(default=0, db_index=True)  # actionable items per 100
     avg_credibility = models.FloatField(default=0.5)
-    distance_km = models.FloatField(null=True, blank=True)
-    freshness = models.FloatField(default=1.0)
-    avg_cost_usd = models.DecimalField(max_digits=8, decimal_places=6, default=0)
-    score = models.FloatField(default=0, db_index=True)
+    distance_km = models.FloatField(null=True, blank=True)  # cold-start prior, before yield
 
-    cadence_minutes = models.IntegerField(default=60)
     last_harvest_at = models.DateTimeField(null=True, blank=True)
     last_useful_find_at = models.DateTimeField(null=True, blank=True)
 
     passes = models.IntegerField(default=0)
     total_items = models.IntegerField(default=0)
     actionable_items = models.IntegerField(default=0)
-    total_cost_usd = models.DecimalField(max_digits=8, decimal_places=4, default=0)
+    observed_cost_usd = models.DecimalField(max_digits=10, decimal_places=4, default=0)
 
     status = models.CharField(max_length=20, choices=NodeStatus.choices, default=NodeStatus.ACTIVE)
     updated_at = models.DateTimeField(auto_now=True)
@@ -57,26 +71,45 @@ class FrontierNode(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["event", "admin_unit", "platform"], name="frontier_node_unique"
-            )
+                fields=["event", "admin_unit", "platform"],
+                condition=models.Q(actor__isnull=True),
+                name="frontier_place_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["event", "actor", "platform"],
+                condition=models.Q(admin_unit__isnull=True),
+                name="frontier_account_unique",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(admin_unit__isnull=False, actor__isnull=True)
+                    | models.Q(admin_unit__isnull=True, actor__isnull=False)
+                ),
+                name="frontier_node_watches_exactly_one",
+            ),
         ]
-        indexes = [models.Index(fields=["event", "status", "-score"])]
+        indexes = [models.Index(fields=["event", "status", "-yield_rate"])]
 
     def __str__(self) -> str:
-        return f"{self.admin_unit.name} · {self.platform} · {self.ring}"
+        target = self.admin_unit or self.actor
+        return f"{target} · {self.platform}"
 
     @property
     def is_unexplored(self) -> bool:
-        """True when this node has never been harvested and has no history to score."""
+        """True when this target has never been harvested and has no quality record yet."""
         return self.passes == 0
 
-    def cost_per_actionable_usd(self):
+    @property
+    def watches_account(self) -> bool:
+        """True when this node follows one account rather than sweeping a place."""
+        return self.actor_id is not None
+
+    def refresh_yield_rate(self) -> float:
         """
-        Cost of one actionable item at this node, or None before anything was found.
+        Recompute the quality signal from the running counters.
 
         Returns:
-            Decimal | None: Total spend divided by actionable items found so far.
+            float: Actionable items per 100 harvested, or 0 before anything was collected.
         """
-        if not self.actionable_items:
-            return None
-        return self.total_cost_usd / self.actionable_items
+        self.yield_rate = 100 * self.actionable_items / self.total_items if self.total_items else 0
+        return self.yield_rate

@@ -6,7 +6,10 @@ a single post routinely produces both: "we have plenty of food but no way to mov
 offer of food and a need for transport from the same actor.
 """
 
+from decimal import Decimal
+
 from django.db import models
+from django.db.models import Sum
 
 from ayudagente.radar.choices import (
     Direction,
@@ -14,8 +17,13 @@ from ayudagente.radar.choices import (
     RequirementStatus,
     Urgency,
 )
+from ayudagente.radar.models.actors import Actor, Location
+from ayudagente.radar.models.catalog import ResourceType
+from ayudagente.radar.models.events import Event
+from ayudagente.radar.models.harvest import Observation
 
-# Match states past which a recomputation must not touch the row: a human is already involved
+# Matches a human has already acted on. Two consequences: a recomputation must not rewrite
+# them, and they are what counts toward a requirement being covered.
 FROZEN_MATCH_STATES = frozenset(
     {
         MatchStatus.CONTACTED,
@@ -43,16 +51,21 @@ class Requirement(models.Model):
         total is reached. Without this it keeps pushing people toward a saturated site,
         which is the failure that does the most harm in a real emergency.
 
+        `covered_quantity` is a cache, not the truth. The truth is the sum of committed
+        quantities across matches a human acted on, and `recompute_covered_quantity` derives
+        it from there. Without a derivation there is no way to repair the number when a
+        match later fails, and it drifts silently.
+
     See:
         `Match` for how two requirements get linked.
     """
 
-    event = models.ForeignKey("radar.Event", on_delete=models.CASCADE, related_name="requirements")
-    actor = models.ForeignKey("radar.Actor", on_delete=models.CASCADE, related_name="requirements")
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="requirements")
+    actor = models.ForeignKey(Actor, on_delete=models.CASCADE, related_name="requirements")
     direction = models.CharField(max_length=10, choices=Direction.choices)
 
     resource = models.ForeignKey(
-        "radar.ResourceType", on_delete=models.PROTECT, related_name="requirements"
+        ResourceType, on_delete=models.PROTECT, related_name="requirements"
     )
     free_text = models.CharField(max_length=300, blank=True)
     quantity = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
@@ -60,10 +73,10 @@ class Requirement(models.Model):
     covered_quantity = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
     location = models.ForeignKey(
-        "radar.Location", on_delete=models.PROTECT, related_name="requirements"
+        Location, on_delete=models.PROTECT, related_name="requirements"
     )
     destination = models.ForeignKey(
-        "radar.Location",
+        Location,
         null=True,
         blank=True,
         on_delete=models.PROTECT,
@@ -78,7 +91,7 @@ class Requirement(models.Model):
     )
 
     confidence = models.FloatField(default=0.5)
-    evidence = models.ManyToManyField("radar.Observation", related_name="requirements")
+    evidence = models.ManyToManyField(Observation, related_name="requirements")
 
     created_at = models.DateTimeField(auto_now_add=True)
     last_seen_at = models.DateTimeField()
@@ -106,6 +119,32 @@ class Requirement(models.Model):
         if self.quantity is None:
             return self.status in (RequirementStatus.COVERED, RequirementStatus.EXPIRED)
         return self.covered_quantity >= self.quantity
+
+    def recompute_covered_quantity(self, save: bool = True) -> Decimal:
+        """
+        Derive coverage from the matches a human has acted on, and repair the cache.
+
+        Counting starts at `contacted` rather than `confirmed` on purpose: ten messages in
+        flight already saturate a site, and waiting for confirmation would keep proposing it.
+
+        Args:
+            save (bool): Whether to persist the recomputed value and the derived status.
+
+        Returns:
+            Decimal: The coverage total this requirement actually has.
+        """
+        matched = Match.objects.filter(need=self, status__in=FROZEN_MATCH_STATES)
+        total = matched.aggregate(total=Sum("committed_quantity"))["total"] or Decimal("0")
+
+        self.covered_quantity = total
+        if self.quantity is not None and total >= self.quantity:
+            self.status = RequirementStatus.COVERED
+        elif total > 0 and self.status == RequirementStatus.OPEN:
+            self.status = RequirementStatus.PARTIAL
+
+        if save:
+            self.save(update_fields=["covered_quantity", "status"])
+        return total
 
 
 class Match(models.Model):

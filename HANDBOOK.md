@@ -9,21 +9,34 @@ information during a disaster, without indiscriminately crawling the entire netw
 
 ---
 
-## The premise: you cannot sweep everything
+## The premise: sweep broadly, choose where to go deep
 
-The whole architecture exists to resolve one tension: you want coverage down to the smallest
-rural district, but an exhaustive sweep costs more than it is worth.
+An earlier version of this handbook argued that a national sweep was unaffordable — one query
+per municipality, times four platforms, times 48 passes a day. That arithmetic was wrong,
+because that is not how you search.
 
-Colombia has more than 1,100 municipalities. A full national sweep — every municipality, four
-platforms, 40 posts each — is roughly 176,000 posts per pass. At real Apify prices that is
-about **$400 per pass**. Every 30 minutes, 48 passes a day: **~$19,000 a day**. Unsustainable,
-and wasted on top of that: 95% of those municipalities have nothing to say about the event.
+You do not run one query per place. You batch toponyms into one query per platform × zone ×
+axis:
 
-LLM tokens are cheap and you can be generous there. Scraping credits are not. The prioritized
-frontier is not an elegant optimization — it is the difference between $150 and $19,000 a day.
+```
+(Pereira OR Quimbaya OR Quibdó OR Cali OR Manizales OR …) AND …
+```
 
-> **Governing principle.** Detection is cheap and global. Harvesting is expensive and
-> focused. Never let harvesting do detection's job.
+The pilot covered a whole country that way: ten queries, 400 posts, **$0.10**. A full sweep is
+20–40 queries per pass, roughly **$0.50–2**, so every 30 minutes costs **$25–100 a day**.
+Breadth is affordable. Collect everything.
+
+What is *not* free is **depth**: mining the eight thousand comments under a viral video,
+pulling an account's whole timeline, re-checking one place every fifteen minutes. Depth
+multiplies, and that is the only allocation decision worth making.
+
+So the frontier does not exist to ration a budget. It exists to answer one question:
+**where is the content good enough to justify going deeper?** The signal is quality — actionable
+items per hundred — not price.
+
+> **Governing principle.** Detection is cheap and global. Broad harvesting is cheap and
+> batched. Depth is expensive and focused. Never let harvesting do detection's job, and never
+> go deep where breadth already told you there is nothing.
 
 ---
 
@@ -53,8 +66,8 @@ alert level, which already models that.
 Disasters cascade. Four days after the earthquake, Quibdó — already hit — flooded from
 overnight rain, and there was a windstorm in Casacará (Agustín Codazzi, Cesar). TikTok caught
 it, not the seismic feeds. An already-affected area taking a second hit changes its priority
-completely, so the watch keeps running against the active event and can rewrite the rings
-mid-operation.
+completely, so the watch keeps running against the active event and can reorder what gets
+watched mid-operation.
 
 > ⚠️ **Verify before wiring.** The four scraping probes in this handbook are measured against
 > real data. These detection feeds are prior knowledge: confirm endpoints, formats and quota
@@ -79,8 +92,8 @@ Buenaventura, San José del Palmar, Calima-El Darién.
 ### What the record holds
 
 - **Physical core** — epicenter, time, magnitude, depth, aftershocks.
-- **Affected units** — official administrative codes, not text strings. In Colombia, DANE's
-  DIVIPOLA.
+- **Affected units** — official administrative codes from the global gazetteer (GeoNames),
+  not text strings.
 - **Downed infrastructure** — airports, roads, hospitals. Closed roads predict where cut-off
   communities will be.
 - **Event lexicon** — what people call it. Hashtags, nicknames, the name of the building that
@@ -101,18 +114,18 @@ to search them — with different queries.
 
 | | **Impact zone** → demand axis | **Support zone** → supply axis |
 |---|---|---|
-| **What it holds** | Municipalities on the official affected list, plus the distance rings around the epicenter | The rest of the country, prioritizing urban centers and neighboring municipalities with road access |
+| **What it holds** | Places on the official affected list, plus their neighbours by distance to the epicenter | The rest of the country, prioritizing urban centers and neighboring municipalities with road access |
 | **What to search for** | Unmet needs · cut-off communities · overwhelmed shelters · missing persons · concrete shortages (water, medicine, tents) | Collection points with address and hours · vehicles and logistics offered · fundraising campaigns and accounts · volunteers and brigades · companies donating in kind |
 
 Geographic expansion runs over the country's official administrative division, not over what
-the model happens to remember. You load the full municipality catalog once, and the agent
-iterates real entities with codes, coordinates and a *department → municipality → settlement*
-hierarchy. That is how you reach the long tail without hallucinating place names.
+the model happens to remember. You load the gazetteer once, and the agent iterates real
+entities with codes, coordinates and a *country → admin_1 → admin_2 → admin_3* hierarchy —
+the GeoNames convention, so it works the same in any country. That is how you reach the long
+tail without hallucinating place names.
 
-> **Rings, not a flat list.** Order impact-zone municipalities by distance to the epicenter
-> and cross that with population density. That gives you the cadence rings in stage 06, and it
-> also predicts where signal *should* exist even where you have not looked yet — which is
-> exactly where exploration is worth spending.
+> **Distance is the cold-start prior.** Before any yield data exists, order impact-zone places
+> by distance to the epicenter and cross that with population. It predicts where signal
+> *should* be, which is where the first passes go. After that, measured quality takes over.
 
 ---
 
@@ -122,7 +135,7 @@ hierarchy. That is how you reach the long tail without hallucinating place names
 
 ### The toponym anchoring rule
 
-**Every query carries a Colombian place name.** This was the highest-impact rule in the pilot.
+**Every query carries a place name from the event's country.** This was the highest-impact rule in the pilot.
 Without anchoring, searches were contaminated by earthquakes in Venezuela, Peru, Indonesia,
 Ecuador and Granada; even a Peruvian business surfaced for saying "punto de acopio". Geography
 is not a filter you apply afterward: it is part of the query.
@@ -266,31 +279,33 @@ against the administrative catalog.
 Every discovered source — an account, a hashtag, a municipality, a query — enters the frontier
 with a score that updates on every harvest. The score determines the cadence.
 
-```
-score = (yield × credibility × proximity × freshness) ÷ cost
-```
+The signal is quality, and there is no divisor:
 
 | Factor | Definition |
 |---|---|
-| `yield` | Actionable items per 100 collected over the last N passes. |
+| `yield_rate` | **The decision signal.** Actionable items per 100 collected over the last N passes. |
 | `credibility` | High for city halls, civil defense and local media; medium for accounts with verified history; low for new or history-less accounts. |
-| `proximity` | Distance to the epicenter, or membership in the official affected list. |
-| `freshness` | Decay since the last useful post. A source quiet for six hours falls on its own. |
-| `cost` | Real price per pass on that platform. **Without this divisor the agent burns the budget on expensive sources.** |
+| `distance_km` | Cold-start prior only — where to look first before any yield data exists. |
+| `freshness` | Decay since the last useful find. A target quiet for six hours falls on its own. |
 
-### Cadence by ring
+Cost is recorded on the job and the event because Apify returns it for free and a runaway loop
+should be visible, but nothing reads it to decide. A target that yields nothing across several
+passes goes to `exhausted`. That is the whole rule.
 
-| Ring | Contents | Municipalities | Cadence | $/day (X) |
-|---|---|---:|---:|---:|
-| T0 | Epicenter and critical municipalities | ~20 | 15 min | ~$19 |
-| T1 | Affected departments | ~100 | 1 h | ~$24 |
-| T2 | Urban supply nodes | ~30 | 3 h | ~$2 |
-| T3 | National long tail | ~950 | 24 h | ~$5 |
+### What the frontier actually allocates
 
-About **$50 a day on X** for the live event, against roughly $19,000 for the blind sweep. The
-platform mix follows the same cost-benefit rule: Facebook over T1 and T3 for the rural long
-tail, Instagram over T2 for the collection-point directory, TikTok only over T0 where its
-price is justified. An active event sustains at around **$100–150 a day**.
+Breadth runs on a flat cadence — every zone, every pass, batched toponyms. The frontier decides
+**depth**:
+
+| Deep pass | When it is worth it |
+|---|---|
+| `profile` — an account's whole timeline | The account already produced actionable items more than once |
+| `comments` — a post's comment tree | The post is local, high-engagement and about aid rather than damage footage |
+| `thread` — replies under one post | Someone asked a question the graph can answer |
+| Re-check a place at high frequency | Its `yield_rate` is high and it went quiet recently |
+
+Accounts and places live in the same table (`FrontierNode` watches one or the other), because
+they compete for the same attention.
 
 ### Two rules that keep the frontier from closing
 
