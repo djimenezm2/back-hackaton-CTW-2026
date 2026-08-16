@@ -49,7 +49,8 @@ main() {
     fi
 
     echo "recreating the workers so they read it"
-    "$ROOT/dc.sh" --profile workers up -d --force-recreate worker beat
+    # harvest-worker above all: it is the one that runs a job and therefore reads the ceiling
+    "$ROOT/dc.sh" --profile workers up -d --force-recreate worker harvest-worker beat
 }
 
 main "$@"

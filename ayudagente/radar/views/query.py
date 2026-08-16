@@ -15,7 +15,7 @@ from django.db import models
 from django.db.models import QuerySet
 from django.http import JsonResponse
 
-DEFAULT_LIMIT = 100
+# Only reached by a client that asks for a page; without `limit` the whole set comes back
 MAX_LIMIT = 500
 DEFAULT_RADIUS_KM = 25.0
 
@@ -41,7 +41,7 @@ def reports_query_errors(view):
 
 def paginate(queryset: QuerySet, request) -> tuple[list, dict]:
     """
-    Slice a queryset by `limit` and `offset`.
+    Slice a queryset by `limit` and `offset`, returning everything when neither is asked for.
 
     Args:
         queryset (QuerySet): Must already be ordered, or the page is not reproducible.
@@ -52,13 +52,21 @@ def paginate(queryset: QuerySet, request) -> tuple[list, dict]:
 
     Raises:
         QueryError: On a non-numeric or negative value.
+
+    Note:
+        A page is opt-in. Defaulting to a hundred rows meant a client that never sent `limit`
+        drew a hundred of five hundred requirements and had no way to know from the map that
+        it was missing four fifths of them — the `count` said so and nobody read it.
+
+        `limit` still works and is still capped, so a client that wants pages gets pages. The
+        envelope reports what was actually returned rather than the cap that was asked for.
     """
-    limit = min(integer(request, "limit", DEFAULT_LIMIT), MAX_LIMIT)
     offset = integer(request, "offset", 0)
-    return (
-        list(queryset[offset : offset + limit]),
-        {"count": queryset.count(), "limit": limit, "offset": offset},
-    )
+    requested = integer(request, "limit", 0)
+    limit = min(requested, MAX_LIMIT) if requested else None
+
+    rows = list(queryset[offset : offset + limit] if limit else queryset[offset:])
+    return rows, {"count": queryset.count(), "limit": limit or len(rows), "offset": offset}
 
 
 def integer(request, name: str, default: int) -> int:

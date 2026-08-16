@@ -132,6 +132,9 @@ CELERY_TASK_ACKS_LATE = True
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_TIME_LIMIT = 600
 
+# A scrape holds a slot ~40s and a read ~3s, so they get separate pools
+CELERY_TASK_ROUTES = {"ayudagente.radar.tasks.harvest": {"queue": "harvest"}}
+
 # The pool size is the real governor; this only stops a burst from tripping the model's quota
 EXTRACTION_RATE_LIMIT = os.environ.get("EXTRACTION_RATE_LIMIT", "240/m")
 

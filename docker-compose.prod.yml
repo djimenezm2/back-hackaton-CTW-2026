@@ -62,7 +62,26 @@ services:
     profiles: ["workers"]
     # Celery forks one process per core, and this node has 112 against 100 db connections
     command:
-      ["celery", "-A", "backend", "worker", "-l", "info", "-c", "${CELERY_CONCURRENCY:-8}"]
+      ["celery", "-A", "backend", "worker", "-l", "info", "-Q", "celery",
+       "-c", "${CELERY_CONCURRENCY:-8}"]
+    env_file: ${ENV_FILE:-/opt/ayudagente/.env}
+    volumes:
+      - /opt/ayudagente/media:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Its own pool, because an Apify run holds a slot for half a minute and reading needs seconds
+  harvest-worker:
+    image: ayudagente-web:latest
+    network_mode: host
+    profiles: ["workers"]
+    command:
+      ["celery", "-A", "backend", "worker", "-l", "info", "-Q", "harvest",
+       "-n", "harvest@%h", "-c", "${HARVEST_CONCURRENCY:-6}"]
     env_file: ${ENV_FILE:-/opt/ayudagente/.env}
     volumes:
       - /opt/ayudagente/media:/app/media

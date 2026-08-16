@@ -219,10 +219,10 @@ prod.tick: ## Beat the loop once, now. Beat waits a full TICK_SECONDS before its
 	$(PROD_MANAGE) tick
 
 prod.workers: ## Start the perpetual loop. Bounded by the global spend ceiling
-	$(DC) --profile workers up -d worker beat
+	$(DC) --profile workers up -d worker harvest-worker beat
 
 prod.workers-down: ## Stop the perpetual loop
-	$(DC) --profile workers stop worker beat
+	$(DC) --profile workers stop worker harvest-worker beat
 
 prod.ceiling: ## Set the global Apify ceiling and restart the workers. USD=10
 	$(REMOTE) $(PROD_ROOT)/ceiling.sh $(USD)
