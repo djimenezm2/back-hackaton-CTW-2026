@@ -21,7 +21,7 @@ from ayudagente.radar.llm import Role, client, model_for
 from ayudagente.radar.models import Extraction, Media, Observation
 from ayudagente.radar.schemas import ExtractionResult
 
-PROMPT_VERSION = "v7"
+PROMPT_VERSION = "v8"
 
 SYSTEM_PROMPT = """\
 You read one social media post from a disaster zone and pull out what someone needs or what
@@ -43,6 +43,11 @@ Three things to hold on to:
 
 3. Some posts have neither. Argument about the response, and reporting that describes damage
    without anyone asking for anything, are `discard`.
+
+4. Set `is_author` on the actor that is the account publishing the post. Most posts are an
+   organisation or a person speaking for themselves — "estamos recibiendo donaciones" is the
+   poster. Leave it false only when the post talks about somebody else: "la Cruz Roja está
+   recibiendo donaciones" written by a bystander is about the Cruz Roja, not by it.
 
 The event context below says which disaster is ours. Set `belongs_to_event` to false when the
 post is about a different one.

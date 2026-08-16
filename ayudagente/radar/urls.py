@@ -42,6 +42,11 @@ urlpatterns = [
         views.observation_detail,
         name="observation-detail",
     ),
+    path(
+        "outreach/<int:outreach_id>/dispatch/",
+        views.dispatch_outreach,
+        name="outreach-dispatch",
+    ),
     path("resource-types/", views.resource_type_list, name="resource-type-list"),
     path("agent/coordination/", agent_views.coordination_agent, name="agent-coordination"),
     path("agent/frontier/", agent_views.frontier_agent, name="agent-frontier"),

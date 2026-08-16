@@ -35,7 +35,7 @@ class Command(BaseCommand):
         parser.add_argument("event_id", type=int, nargs="?", help="Defaults to the active event.")
         parser.add_argument("--limit", type=int, help="Read at most this many posts.")
         parser.add_argument(
-            "--workers", type=int, default=8, help="Inline concurrency. Ignored with --queue."
+            "--workers", type=int, default=16, help="Inline concurrency. Ignored with --queue."
         )
         parser.add_argument("--force", action="store_true", help="Re-read posts already read.")
         parser.add_argument("--queue", action="store_true", help="Hand the work to Celery.")

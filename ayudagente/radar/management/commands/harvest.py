@@ -1,8 +1,10 @@
 """Run the harvest jobs the frontier agent queued."""
 
 from argparse import ArgumentParser
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import connections
 
 from ayudagente.radar.choices import JobStatus
 from ayudagente.radar.models import Event, HarvestJob
@@ -29,6 +31,9 @@ class Command(BaseCommand):
         parser.add_argument("event_id", type=int, nargs="?", help="Defaults to the active event.")
         parser.add_argument("--limit", type=int, help="Run at most this many jobs.")
         parser.add_argument("--queue", action="store_true", help="Hand the work to Celery.")
+        parser.add_argument(
+            "--workers", type=int, default=4, help="Concurrent runs. Ignored with --queue."
+        )
         parser.add_argument(
             "--pipeline",
             action="store_true",
@@ -95,35 +100,50 @@ class Command(BaseCommand):
 
     def _run_inline(self, jobs: list[HarvestJob], options: dict) -> None:
         """
-        Run the jobs one at a time, reporting each.
+        Run the jobs concurrently, reporting each as it lands.
 
         Note:
-            Sequential on purpose. Apify runs are minutes long and rate limited per account,
-            so parallelism here buys little and makes a failure harder to read.
+            This used to be sequential, on the claim that Apify rate limits per account so
+            parallelism bought little. Measured, that was wrong: eight jobs took six minutes
+            of which the slowest was ninety-six seconds, and the rest was waiting. Apify runs
+            are independent and bounded by the account's memory, not by a run rate.
+
+            Each worker closes its database connections on the way out. A thread that ends
+            holding one leaks it for the life of the process, which on a long run exhausts the
+            pool of the database it is writing to.
         """
         totals = {"returned": 0, "new": 0, "failed": 0}
 
-        for job in jobs:
+        def work(job: HarvestJob):
             try:
-                result = run_harvest_job(job.pk)
-            except HarvestNotConfigured as exc:
-                raise CommandError(str(exc)) from exc
-            except Exception as exc:
-                totals["failed"] += 1
-                self.stdout.write(self.style.ERROR(f"  job {job.pk}: {exc}"))
-                continue
+                return run_harvest_job(job.pk)
+            finally:
+                connections.close_all()
 
-            totals["returned"] += result.items_returned
-            totals["new"] += result.items_new
-            job.refresh_from_db()
-            self.stdout.write(
-                f"  job {job.pk}: {result.items_returned} items, "
-                f"{result.items_new} new, {job.status}"
-            )
+        with ThreadPoolExecutor(max_workers=options["workers"]) as pool:
+            futures = {pool.submit(work, job): job for job in jobs}
+            for future in as_completed(futures):
+                job = futures[future]
+                try:
+                    result = future.result()
+                except HarvestNotConfigured as exc:
+                    raise CommandError(str(exc)) from exc
+                except Exception as exc:
+                    totals["failed"] += 1
+                    self.stdout.write(self.style.ERROR(f"  job {job.pk}: {exc}"))
+                    continue
 
-            if options["pipeline"]:
-                for observation_id in result.observation_ids:
-                    process_observation(observation_id)
+                totals["returned"] += result.items_returned
+                totals["new"] += result.items_new
+                job.refresh_from_db()
+                self.stdout.write(
+                    f"  job {job.pk}: {result.items_returned} items, "
+                    f"{result.items_new} new, {job.status}"
+                )
+
+                if options["pipeline"]:
+                    for observation_id in result.observation_ids:
+                        process_observation(observation_id)
 
         style = self.style.SUCCESS if not totals["failed"] else self.style.WARNING
         self.stdout.write(
