@@ -19,7 +19,8 @@ from agent_tools.network import URGENCY_RANK, Network
 from agent_tools.shared import ToolInputError, get_event, resolve_place_arg
 from ayudagente.radar.choices import Direction
 
-TOP_N = 10
+# Above anything one event produces, so a bucket is whole unless the totals say otherwise
+TOP_N = 300
 
 
 class FindGapsInput(BaseModel):
@@ -113,5 +114,11 @@ def find_gaps(event_id: int, place: str | None = None) -> dict:
         "partially_covered": partial[:TOP_N],
         "cut_off": cut_off[:TOP_N],
         "no_supply_anywhere": no_supply[:TOP_N],
+        "totals": {
+            "partially_covered": len(partial),
+            "cut_off": len(cut_off),
+            "no_supply_anywhere": len(no_supply),
+        },
+        "truncated": max(len(partial), len(cut_off), len(no_supply), len(unattended)) > TOP_N,
         "unreachable_actors": unreachable,
     }

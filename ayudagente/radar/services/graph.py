@@ -12,11 +12,10 @@ from contextvars import ContextVar
 
 from django.db.models import Prefetch
 
-from ayudagente.radar.choices import MatchStatus, RequirementStatus
+from ayudagente.radar.choices import MatchStatus
 from ayudagente.radar.models import Actor, Event, GraphSnapshot, Match, Requirement
 from ayudagente.radar.services.matching import run_matching_pass
 
-OPEN_REQUIREMENT_STATUSES = (RequirementStatus.OPEN, RequirementStatus.PARTIAL)
 VISIBLE_MATCH_STATUSES = (
     MatchStatus.PROPOSED,
     MatchStatus.CONTACTED,
@@ -88,7 +87,17 @@ def input_fingerprint(event_id: int) -> str:
 
 
 def build_graph_payload(event: Event) -> dict:
-    """Serialize the event's graph: actors as nodes, visible matches as edges."""
+    """
+    Serialize the event's graph: actors as nodes, visible matches as edges.
+
+    Note:
+        The status set is imported rather than restated. This module used to keep its own
+        copy, it never gained `unverified` when the policy did, and the map drew 64 of 512
+        requirements while the list endpoint showed all of them. Imported here rather than
+        at module level because the views package reaches back into this one.
+    """
+    from ayudagente.radar.views.policy import OPEN_REQUIREMENT_STATUSES
+
     open_requirements = Prefetch(
         "requirements",
         queryset=Requirement.objects.filter(status__in=OPEN_REQUIREMENT_STATUSES).select_related(

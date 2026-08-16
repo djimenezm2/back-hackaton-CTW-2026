@@ -24,7 +24,7 @@ from ayudagente.radar.models import HarvestJob
 from ayudagente.radar.services import get_frontier as get_frontier_service
 from ayudagente.radar.services.frontier import IN_FLIGHT_STATUSES
 
-MAX_NODES = 60
+MAX_NODES = 300
 
 
 class GetFrontierInput(BaseModel):
@@ -111,6 +111,7 @@ def get_frontier(event_id: int, limit: int = MAX_NODES) -> dict:
 
     return {
         "count": len(rows),
+        "truncated": len(rows) >= min(limit, MAX_NODES),
         "unexplored": sum(1 for row in rows if row["is_unexplored"]),
         "in_flight": len(in_flight),
         "nodes": rows,

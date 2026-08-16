@@ -28,6 +28,11 @@ class Command(BaseCommand):
             metavar="EVENT_ID",
             help="Restrict to one event. Defaults to every active event.",
         )
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Rebuild even when the inputs are unchanged, after the payload shape changes.",
+        )
 
     def handle(self, *args, **options):
         if options["event"] is not None:
@@ -40,7 +45,7 @@ class Command(BaseCommand):
                 raise CommandError("no active events")
 
         for event in events:
-            snapshot, rebuilt = refresh_graph(event.id)
+            snapshot, rebuilt = refresh_graph(event.id, force=options["force"])
             verb = "rebuilt" if rebuilt else "already current (inputs unchanged)"
             self.stdout.write(
                 f"{event.name} (#{event.id}): {verb} — "

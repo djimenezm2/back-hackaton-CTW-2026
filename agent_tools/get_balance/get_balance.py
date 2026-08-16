@@ -19,7 +19,7 @@ from agent_tools.shared import (
 from ayudagente.radar.services import get_balance as get_balance_service
 
 # The whole point is a compact overview; past this it is a listing, not a summary
-MAX_ROWS = 40
+MAX_ROWS = 300
 
 
 def serialize(row: dict) -> dict:

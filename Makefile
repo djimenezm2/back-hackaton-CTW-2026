@@ -126,7 +126,7 @@ harvest: ## Run the jobs an armed event queued. Spends Apify. ARGS="--limit 3"
 pipeline: ## Read an event's posts into requirements. Spends OpenAI. ARGS="--limit 20"
 	$(MANAGE) run_pipeline $(ARGS)
 
-graph: ## Recompute matches and the stored graph. ARGS="--event 1"
+graph: ## Recompute matches and the stored graph. ARGS="--event 1 --force"
 	$(MANAGE) build_graph $(ARGS)
 
 media: ## Download harvested images before their signed URLs expire
@@ -203,7 +203,7 @@ prod.harvest: ## Run one round of pending jobs. Spends Apify. ARGS="--limit 3 --
 prod.pipeline: ## Read pending posts. Spends OpenAI. ARGS="1 --limit 50 --yes"
 	$(PROD_MANAGE) run_pipeline $(ARGS)
 
-prod.graph: ## Recompute matches and the stored graph. ARGS="--event 1"
+prod.graph: ## Recompute matches and the stored graph. ARGS="--event 1 --force"
 	$(PROD_MANAGE) build_graph $(ARGS)
 
 prod.media: ## Download harvested images on the server

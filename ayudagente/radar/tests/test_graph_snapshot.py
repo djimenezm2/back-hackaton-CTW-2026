@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from django.urls import reverse
 
-from ayudagente.radar.choices import Direction, MatchStatus
+from ayudagente.radar.choices import Direction, MatchStatus, RequirementStatus
 from ayudagente.radar.models import Match
 from ayudagente.radar.services.graph import refresh_graph
 from ayudagente.radar.tests.factories import (
@@ -110,3 +110,37 @@ class GraphSnapshotTests(ApiTestCase):
         self.assertEqual(len(payload["nodes"]), 2)
         self.assertEqual(len(payload["edges"]), 1)
         self.assertIn("built_at", payload)
+
+
+class GraphShowsWhatTheListShowsTests(ApiTestCase):
+    """
+    The map and the list have to agree on which requirements are live.
+
+    Note:
+        They did not. `services/graph.py` kept its own copy of the status set, never gained
+        `unverified` when the policy did, and a live event drew 64 of 512 requirements on the
+        map while the list endpoint returned all of them. Neither endpoint looked broken.
+    """
+
+    def test_the_graph_uses_the_same_statuses_the_policy_declares(self):
+        from ayudagente.radar.views.policy import OPEN_REQUIREMENT_STATUSES
+
+        self.assertIn(RequirementStatus.UNVERIFIED, OPEN_REQUIREMENT_STATUSES)
+
+    def test_an_unverified_requirement_reaches_its_node(self):
+        event = make_event()
+        actor = make_actor(event, "Barrio Cuba")
+        make_requirement(
+            event,
+            actor,
+            make_resource("agua"),
+            make_location(PEREIRA, "Pereira"),
+            direction=Direction.NEEDS,
+            status=RequirementStatus.UNVERIFIED,
+        )
+
+        snapshot, _ = refresh_graph(event.pk, force=True)
+
+        node = next(n for n in snapshot.payload["nodes"] if n["id"] == actor.pk)
+        self.assertEqual(len(node["requirements"]), 1)
+        self.assertEqual(node["requirements"][0]["status"], RequirementStatus.UNVERIFIED)
