@@ -40,12 +40,12 @@ MARKERS = $(if $(LIVE),-m "",)
 .DEFAULT_GOAL := help
 .PHONY: help init up down ps logs check lint format comments types test \
         migrate migrations run shell superuser apikey seed unseed \
-        taxonomy gazetteer events watch arm harvest pipeline graph media report narrate tick \
+        taxonomy gazetteer events watch arm harvest pipeline graph media report narrate tick link \
         worker beat \
         prod.deploy prod.seed prod.unseed prod.logs prod.ps prod.shell prod.migrate \
         prod.taxonomy prod.gazetteer \
         prod.events prod.watch prod.arm prod.harvest prod.pipeline prod.graph prod.media \
-        prod.report prod.narrate prod.tick prod.workers prod.workers-down prod.ceiling
+        prod.link prod.report prod.narrate prod.tick prod.workers prod.workers-down prod.ceiling
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*##"; printf "Local:\n"} /^[a-z0-9_-]+:.*##/ {printf "  make %-14s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -126,6 +126,9 @@ harvest: ## Run the jobs an armed event queued. Spends Apify. ARGS="--limit 3"
 pipeline: ## Read an event's posts into requirements. Spends OpenAI. ARGS="--limit 20"
 	$(MANAGE) run_pipeline $(ARGS)
 
+link: ## Attach stored locations to their municipality. ARGS="--dry-run"
+	$(MANAGE) link_locations $(ARGS)
+
 graph: ## Recompute matches and the stored graph. ARGS="--event 1 --force"
 	$(MANAGE) build_graph $(ARGS)
 
@@ -202,6 +205,9 @@ prod.harvest: ## Run one round of pending jobs. Spends Apify. ARGS="--limit 3 --
 
 prod.pipeline: ## Read pending posts. Spends OpenAI. ARGS="1 --limit 50 --yes"
 	$(PROD_MANAGE) run_pipeline $(ARGS)
+
+prod.link: ## Attach stored locations to their municipality. ARGS="--dry-run"
+	$(PROD_MANAGE) link_locations $(ARGS)
 
 prod.graph: ## Recompute matches and the stored graph. ARGS="--event 1 --force"
 	$(PROD_MANAGE) build_graph $(ARGS)

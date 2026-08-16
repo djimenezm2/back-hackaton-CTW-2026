@@ -9,13 +9,18 @@ every result carries the precision Google reported, and callers enforce a minimu
 
 import requests
 from django.conf import settings
+from django.contrib.gis.db.models.functions import Distance
 from django.contrib.gis.geos import Point
+from django.contrib.gis.measure import D
 
-from ayudagente.radar.choices import GeocodeSource, LocationPrecision
-from ayudagente.radar.models import Event, Location
+from ayudagente.radar.choices import AdminLevel, GeocodeSource, LocationPrecision
+from ayudagente.radar.models import AdminUnit, Event, Location
 from ayudagente.radar.services.text import normalize
 
 GOOGLE_ENDPOINT = "https://maps.googleapis.com/maps/api/geocode/json"
+
+# A municipality's centroid can sit well away from its edge, so the reach is generous
+UNIT_REACH_KM = 50
 
 # Google's place types, coarse to fine. The first match wins, so order matters.
 PRECISION_BY_TYPE = (
@@ -68,7 +73,7 @@ class Geocoder:
             return None
 
         text_norm = normalize(query)
-        cached = Location.objects.filter(text_norm=text_norm, admin_unit__isnull=True).first()
+        cached = Location.objects.filter(text_norm=text_norm).first()
         if cached:
             return cached
 
@@ -77,11 +82,12 @@ class Geocoder:
             return None
 
         coordinates = result["geometry"]["location"]
+        point = Point(coordinates["lng"], coordinates["lat"], srid=4326)
         location, _ = Location.objects.get_or_create(
             text_norm=text_norm,
-            admin_unit=None,
+            admin_unit=unit_for(point, event.country_code),
             defaults={
-                "point": Point(coordinates["lng"], coordinates["lat"], srid=4326),
+                "point": point,
                 "precision": self.precision_of(result),
                 "raw_text": query[:300],
                 "source": GeocodeSource.GOOGLE,
@@ -163,3 +169,31 @@ class Geocoder:
         }
         score = by_location_type.get(result.get("geometry", {}).get("location_type"), 0.6)
         return score * 0.7 if result.get("partial_match") else score
+
+
+def unit_for(point: Point, country_code: str) -> "AdminUnit | None":
+    """
+    The municipality a geocoded point falls in, according to the gazetteer we hold.
+
+    Args:
+        point (Point): Where the geocoder placed the string.
+        country_code (str): Narrows the search to the country the event is in.
+
+    Returns:
+        AdminUnit | None: The nearest second-level unit within reach, or None when the
+            country has no gazetteer loaded or nothing is close enough.
+
+    Note:
+        Every geocoded `Location` used to be stored with `admin_unit=None`, and three
+        different consumers read that link: the agent's place filter returned nothing for any
+        place, identity resolution lost its blocking by municipality, and the frontier could
+        not promote an account by where it posts. A point with no municipality is still a
+        point, so failing to match one is left as None rather than raised.
+    """
+    return (
+        AdminUnit.objects.filter(country_code=country_code, level=AdminLevel.ADMIN_2)
+        .filter(centroid__isnull=False, centroid__distance_lte=(point, D(km=UNIT_REACH_KM)))
+        .annotate(separation=Distance("centroid", point))
+        .order_by("separation")
+        .first()
+    )
