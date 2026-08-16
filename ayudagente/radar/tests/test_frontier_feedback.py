@@ -20,6 +20,7 @@ from ayudagente.radar.choices import (
     Zone,
 )
 from ayudagente.radar.models import AdminUnit, FrontierNode, HarvestJob, Observation
+from ayudagente.radar.services.apify_inputs import APIFY_ACTOR_BY_PLATFORM
 from ayudagente.radar.services.frontier import (
     COOLDOWN,
     create_harvest_job,
@@ -245,5 +246,14 @@ class DuplicateGuardTests(FrontierBase):
     def test_the_query_still_carries_the_toponym(self):
         job = create_harvest_job(self.event.id, self.node.id, "primera pasada")
 
-        self.assertIn("Quibdó", job.actor_input["searchQuery"])
-        self.assertIn('-"Perú"', job.actor_input["searchQuery"])
+        query = job.actor_input["searchTerms"][0]
+        self.assertIn("Quibdó", query)
+        self.assertIn('-"Perú"', query)
+
+    def test_the_payload_is_the_one_this_platform_accepts(self):
+        # The first live run shipped an invented field; three Actors ignored it in silence
+        job = create_harvest_job(self.event.id, self.node.id, "primera pasada")
+
+        self.assertEqual(job.apify_actor, APIFY_ACTOR_BY_PLATFORM[Platform.X])
+        self.assertIn("maxItems", job.actor_input)
+        self.assertNotIn("searchQuery", job.actor_input)

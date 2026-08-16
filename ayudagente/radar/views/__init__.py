@@ -17,6 +17,7 @@ from ayudagente.radar.views.actors import actor_detail, actor_list
 from ayudagente.radar.views.catalog import resource_type_list
 from ayudagente.radar.views.events import event_detail, event_graph, event_list
 from ayudagente.radar.views.observations import observation_detail, observation_list
+from ayudagente.radar.views.operations import job_list, loop_status
 from ayudagente.radar.views.proposals import match_list, outreach_list
 from ayudagente.radar.views.requirements import requirement_detail, requirement_list
 
@@ -26,6 +27,8 @@ __all__ = [
     "event_detail",
     "event_graph",
     "event_list",
+    "job_list",
+    "loop_status",
     "match_list",
     "observation_detail",
     "observation_list",

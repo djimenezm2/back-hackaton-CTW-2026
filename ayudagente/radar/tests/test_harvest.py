@@ -8,7 +8,7 @@ one is the whole point: without it a perpetual agent reads identical rows foreve
 """
 
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from django.test import TestCase
@@ -73,7 +73,8 @@ def tweet(platform_id: str, text: str = "necesitamos agua en Quibdó") -> dict:
 
 class HarvestBase(TestCase):
     def setUp(self):
-        self.event = make_event()
+        # Before the fixture tweets, or every one of them counts as predating the emergency
+        self.event = make_event(occurred_at=datetime(2026, 8, 10, tzinfo=UTC))
         self.unit = AdminUnit.objects.create(
             country_code="CO",
             code="27001",
@@ -185,6 +186,38 @@ class RunHarvestJobTests(HarvestBase):
         media = Media.objects.get()
         self.assertEqual(media.source_url, "https://pbs.twimg.com/a.jpg")
         self.assertEqual(media.observation.platform_id, "1")
+
+
+class StalenessTests(HarvestBase):
+    """Only X honours a date filter, so the others hand back whatever the platform has."""
+
+    def test_a_post_from_before_the_emergency_is_dropped(self):
+        old = tweet("1")
+        old["createdAt"] = "2024-03-02T10:00:00.000Z"
+
+        result = run_harvest_job(self._job().pk, client=FakeClient(items=[old, tweet("2")]))
+
+        self.assertEqual(result.items_new, 1)
+        self.assertEqual(result.stale, 1)
+        self.assertEqual(Observation.objects.count(), 1)
+
+    def test_a_post_from_just_before_it_survives_the_grace(self):
+        early = tweet("1")
+        early["createdAt"] = "2026-08-09T20:00:00.000Z"
+
+        result = run_harvest_job(self._job().pk, client=FakeClient(items=[early]))
+
+        self.assertEqual(result.items_new, 1)
+        self.assertEqual(result.stale, 0)
+
+    def test_an_item_with_no_timestamp_is_skipped_rather_than_called_stale(self):
+        undated = tweet("1")
+        undated.pop("createdAt")
+
+        result = run_harvest_job(self._job().pk, client=FakeClient(items=[undated]))
+
+        self.assertEqual(result.skipped, 1)
+        self.assertEqual(result.stale, 0)
 
 
 class ActorDownTests(HarvestBase):

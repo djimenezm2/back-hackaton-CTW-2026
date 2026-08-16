@@ -37,10 +37,12 @@ from ayudagente.radar.choices import (
     Zone,
 )
 from ayudagente.radar.models import AdminUnit, Event, FrontierNode, HarvestJob
-from ayudagente.radar.services.frontier import (
+from ayudagente.radar.services.apify_inputs import (
     APIFY_ACTOR_BY_PLATFORM,
-    MAX_NEGATIVE_TERMS,
+    Query,
+    build_input,
 )
+from ayudagente.radar.services.frontier import MAX_NEGATIVE_TERMS
 
 logger = logging.getLogger(__name__)
 
@@ -171,46 +173,51 @@ def impact_units(event: Event, units: QuerySet) -> set[int] | None:
     return set(near.values_list("pk", flat=True))
 
 
-def build_sweep_query(event: Event, units: list[AdminUnit], zone: str) -> str:
+def sweep_query(event: Event, units: list[AdminUnit], zone: str) -> Query:
     """
-    Compose one query covering many places at once.
+    Describe what a sweep is looking for, in the domain's terms rather than any Actor's.
 
     Args:
-        event (Event): Source of the lexicon.
-        units (list[AdminUnit]): The toponyms to batch into this query.
+        event (Event): Source of the lexicon and the language.
+        units (list[AdminUnit]): The places this query covers.
         zone (str): Selects the axis vocabulary — demand for impact, supply for support.
 
     Returns:
-        str: Toponyms and axis terms joined by OR, with other emergencies' terms excluded.
+        Query: Toponyms first, then the axis words and hashtags. `build_input` decides how
+            each platform receives them, because only X batches with OR.
 
     Note:
-        Toponyms come first and are never dropped by the cap. A query without one pulls in
-        every other country's disaster, which is the one thing invariant 9 forbids.
-
         Names are deduplicated because the two levels overlap: a capital district is both a
         first-level division and a municipality, and repeating "Bogotá" spends a slot in a
         query whose length is the real constraint.
+
+        Each name is also produced carrying its region, for the platforms that tokenize
+        rather than honour a quoted phrase. "Río Quito" alone returned Quito, Ecuador.
     """
     lexicon = event.lexicon or {}
-    axis_key = "demand" if zone == Zone.IMPACT else "supply"
 
-    terms: list[str] = []
+    toponyms: list[str] = []
+    qualified: list[str] = []
     for unit in units:
-        if unit.name not in terms:
-            terms.append(unit.name)
-        if len(terms) == TOPONYMS_PER_QUERY:
+        if unit.name in toponyms:
+            continue
+        toponyms.append(unit.name)
+        region = unit.parent.name if unit.parent and unit.parent.name != unit.name else ""
+        qualified.append(f"{unit.name} {region}".strip())
+        if len(toponyms) == TOPONYMS_PER_QUERY:
             break
 
-    for key in (axis_key, "hashtags"):
-        for term in (lexicon.get(key) or [])[:AXIS_TERMS_PER_QUERY]:
-            if term and term not in terms:
-                terms.append(term)
-
-    query = " OR ".join(f'"{term}"' for term in terms)
-    negatives = " ".join(
-        f'-"{term}"' for term in (lexicon.get("negatives") or [])[:MAX_NEGATIVE_TERMS]
+    axis_key = "demand" if zone == Zone.IMPACT else "supply"
+    return Query(
+        toponyms=toponyms,
+        qualified=qualified,
+        axis_terms=(lexicon.get(axis_key) or [])[:AXIS_TERMS_PER_QUERY],
+        hashtags=(lexicon.get("hashtags") or [])[:AXIS_TERMS_PER_QUERY],
+        negatives=(lexicon.get("negatives") or [])[:MAX_NEGATIVE_TERMS],
+        limit=SWEEP_ITEM_LIMIT,
+        language=(event.languages or [""])[0],
+        since=event.occurred_at.date() if event.occurred_at else None,
     )
-    return f"{query} {negatives}".strip()
 
 
 def _create_nodes(event: Event, platforms: list[str]) -> int:
@@ -251,14 +258,15 @@ def _create_sweep_jobs(event: Event, platforms: list[str]) -> int:
         if not units:
             continue
 
-        query = build_sweep_query(event, units, zone)
+        query = sweep_query(event, units, zone)
         for platform in platforms:
+            actor_input = build_input(platform, query)
             already = HarvestJob.objects.filter(
                 event=event,
                 platform=platform,
                 node__isnull=True,
                 status=JobStatus.PENDING,
-                actor_input__searchQuery=query,
+                actor_input=actor_input,
             ).exists()
             if already:
                 continue
@@ -269,7 +277,7 @@ def _create_sweep_jobs(event: Event, platforms: list[str]) -> int:
                 platform=platform,
                 target_kind=HarvestTarget.SEARCH,
                 apify_actor=APIFY_ACTOR_BY_PLATFORM[Platform(platform)],
-                actor_input={"searchQuery": query, "maxItems": SWEEP_ITEM_LIMIT},
+                actor_input=actor_input,
                 decided_by=DecisionSource.RULE,
                 rationale=(
                     f"Cold-start sweep of the {zone} zone on {platform}: "

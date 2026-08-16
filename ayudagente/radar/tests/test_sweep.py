@@ -11,6 +11,7 @@ from django.test import TestCase
 
 from ayudagente.radar.choices import AdminLevel, DecisionSource, JobStatus, Zone
 from ayudagente.radar.models import AdminUnit, FrontierNode, HarvestJob
+from ayudagente.radar.services.apify_inputs import build_input
 from ayudagente.radar.services.gazetteer import (
     administrative_words,
     load_country,
@@ -19,8 +20,8 @@ from ayudagente.radar.services.gazetteer import (
 from ayudagente.radar.services.sweep import (
     TOPONYMS_PER_QUERY,
     bootstrap_event,
-    build_sweep_query,
     places_by_zone,
+    sweep_query,
 )
 from ayudagente.radar.tests.factories import QUIBDO, make_event
 
@@ -246,7 +247,7 @@ class SweepQueryTests(TestCase):
 
     def _query(self, zone: str) -> str:
         units = list(places_by_zone(self.event, zone)[:TOPONYMS_PER_QUERY])
-        return build_sweep_query(self.event, units, zone)
+        return build_input("x", sweep_query(self.event, units, zone))["searchTerms"][0]
 
     def test_one_query_carries_many_toponyms(self):
         query = self._query(Zone.IMPACT)
@@ -271,7 +272,7 @@ class SweepQueryTests(TestCase):
         for zone in (Zone.IMPACT, Zone.SUPPORT):
             with self.subTest(zone=zone):
                 units = list(places_by_zone(self.event, zone)[:TOPONYMS_PER_QUERY])
-                query = build_sweep_query(self.event, units, zone)
+                query = build_input("x", sweep_query(self.event, units, zone))["searchTerms"][0]
                 self.assertTrue(any(f'"{unit.name}"' in query for unit in units))
 
 

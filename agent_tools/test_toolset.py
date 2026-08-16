@@ -464,7 +464,7 @@ class FrontierToolsTests(TestCase):
         )
 
         job = HarvestJob.objects.get(id=result["job_id"])
-        query = job.actor_input["searchQuery"]
+        query = job.actor_input["searchTerms"][0]
         self.assertIn("Quibdó", query)  # invariant: always anchored to a real toponym
         self.assertIn("#SismoChoco", query)
         self.assertIn('-"Turquía"', query)  # other emergencies excluded
@@ -487,7 +487,7 @@ class FrontierToolsTests(TestCase):
             }
         )
 
-        query = HarvestJob.objects.get(id=result["job_id"]).actor_input["searchQuery"]
+        query = HarvestJob.objects.get(id=result["job_id"]).actor_input["searchTerms"][0]
         self.assertIn("Quibdó", query)  # the anchor, without which the query pulls the world
         self.assertIn('-"Turquía"', query)
 

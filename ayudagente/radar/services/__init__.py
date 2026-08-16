@@ -12,7 +12,6 @@ from ayudagente.radar.services.actors import (
     get_contact_points,
 )
 from ayudagente.radar.services.frontier import (
-    build_search_query,
     create_harvest_job,
     get_frontier,
     record_actionable_find,
@@ -46,7 +45,7 @@ from ayudagente.radar.services.requirements import (
     routable,
 )
 from ayudagente.radar.services.routing import RoutingError, plan_trip_stops, road_distance
-from ayudagente.radar.services.sweep import bootstrap_event, build_sweep_query, places_by_zone
+from ayudagente.radar.services.sweep import bootstrap_event, places_by_zone, sweep_query
 
 __all__ = [
     "GazetteerError",
@@ -56,8 +55,6 @@ __all__ = [
     "best_contact_point",
     "bootstrap_event",
     "build_graph_payload",
-    "build_search_query",
-    "build_sweep_query",
     "create_harvest_job",
     "draft_outreach",
     "find_admin_units",
@@ -84,4 +81,5 @@ __all__ = [
     "routable",
     "run_harvest_job",
     "run_matching_pass",
+    "sweep_query",
 ]

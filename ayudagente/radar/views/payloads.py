@@ -171,8 +171,8 @@ def requirement_row(requirement: Requirement) -> dict:
         "actor": actor_brief(requirement.actor),
         "location": location(requirement.location),
         "is_saturated": requirement.is_saturated,
-        "window_start": _timestamp(requirement.window_start),
-        "window_end": _timestamp(requirement.window_end),
+        "window_start": timestamp(requirement.window_start),
+        "window_end": timestamp(requirement.window_end),
         "last_seen_at": requirement.last_seen_at.isoformat(),
     }
 
@@ -273,7 +273,7 @@ def outreach_row(value: Outreach) -> dict:
         "text_is_prefilled": value.text_is_prefilled,
         "drafted_by": value.drafted_by,
         "created_at": value.created_at.isoformat(),
-        "dispatched_at": _timestamp(value.dispatched_at),
+        "dispatched_at": timestamp(value.dispatched_at),
         "target_actor": actor_brief(value.target_actor),
         "contact": contact(value.contact_point),
         "match_id": value.match_id,
@@ -311,6 +311,6 @@ def _media_url(blob_path: str) -> str | None:
     return f"{settings.MEDIA_URL}{blob_path}"
 
 
-def _timestamp(value) -> str | None:
+def timestamp(value) -> str | None:
     """An optional datetime as ISO 8601."""
     return value.isoformat() if value else None

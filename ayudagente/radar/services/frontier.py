@@ -32,17 +32,17 @@ from ayudagente.radar.choices import (
     Platform,
 )
 from ayudagente.radar.models import AdminUnit, Event, FrontierNode, HarvestJob, Observation
-
-# One Apify actor per platform. The agent picks a target, never an implementation.
-APIFY_ACTOR_BY_PLATFORM = {
-    Platform.X: "apidojo/tweet-scraper",
-    Platform.INSTAGRAM: "apify/instagram-scraper",
-    Platform.FACEBOOK: "apify/facebook-posts-scraper",
-    Platform.TIKTOK: "clockworks/tiktok-scraper",
-}
+from ayudagente.radar.services.apify_inputs import (
+    APIFY_ACTOR_BY_PLATFORM,
+    Query,
+    build_input,
+)
 
 MAX_QUERY_TERMS = 12
 MAX_NEGATIVE_TERMS = 6
+
+# What one deep pass on a single target is worth fetching
+TARGET_ITEM_LIMIT = 100
 
 # A job in either state is still going to produce posts; a second one would duplicate it
 IN_FLIGHT_STATUSES = (JobStatus.PENDING, JobStatus.RUNNING)
@@ -77,36 +77,40 @@ def get_frontier(event_id: int, limit: int = 60) -> list[FrontierNode]:
     )
 
 
-def build_search_query(event: Event, admin_unit: AdminUnit) -> str:
+def target_query(event: Event, admin_unit: AdminUnit | None, handle: str = "") -> Query:
     """
-    Compose the query string for a place sweep, anchored and de-conflicted.
+    Describe what a deep pass on one target is looking for.
 
     Args:
-        event (Event): Source of the lexicon — hashtags, nicknames and negatives.
-        admin_unit (AdminUnit): The toponym that anchors the query.
+        event (Event): Source of the lexicon and the language.
+        admin_unit (AdminUnit | None): The place, when the node watches one.
+        handle (str): The account name, when it watches one instead.
 
     Returns:
-        str: Terms joined for the platform's search syntax, with other emergencies' terms
-            excluded.
+        Query: Anchored on the target, widened by the event's own hashtags and nicknames.
 
-    Note:
-        The toponym is not optional and not the model's to choose. Without it a query for
-        "earthquake help" pulls in every other country's earthquake.
+    Raises:
+        ValueError: When neither a place nor a handle is given. The anchor is not optional
+            and not the model's to choose — without it a query for "earthquake help" pulls
+            in every other country's earthquake.
     """
+    anchor = admin_unit.name if admin_unit is not None else handle
+    if not anchor:
+        raise ValueError("a target query needs either a place or an account to anchor on")
+
     lexicon = event.lexicon or {}
+    widening = [
+        term for key in ("hashtags", "nicknames") for term in (lexicon.get(key) or []) if term
+    ][: MAX_QUERY_TERMS - 1]
 
-    # The toponym is first and never dropped: it is the anchor the cap must not cut
-    terms = [admin_unit.name]
-    for key in ("hashtags", "nicknames"):
-        for term in lexicon.get(key, []) or []:
-            if term and term not in terms and len(terms) < MAX_QUERY_TERMS:
-                terms.append(term)
-
-    query = " OR ".join(f'"{term}"' for term in terms)
-    negatives = " ".join(
-        f'-"{term}"' for term in list(lexicon.get("negatives", []) or [])[:MAX_NEGATIVE_TERMS]
+    return Query(
+        toponyms=[anchor],
+        hashtags=widening,
+        negatives=(lexicon.get("negatives") or [])[:MAX_NEGATIVE_TERMS],
+        limit=TARGET_ITEM_LIMIT,
+        language=(event.languages or [""])[0],
+        since=event.occurred_at.date() if event.occurred_at else None,
     )
-    return f"{query} {negatives}".strip()
 
 
 def create_harvest_job(
@@ -168,10 +172,12 @@ def create_harvest_job(
         raise ValueError(f"no Apify actor configured for platform {node.platform!r}")
 
     # The check constraint guarantees exactly one target, but the types do not know that
-    if node.actor is not None:
-        actor_input = {"handle": node.actor.canonical_name, "resultsLimit": 100}
-    elif node.admin_unit is not None:
-        actor_input = {"searchQuery": build_search_query(event, node.admin_unit), "maxItems": 100}
+    if node.admin_unit is not None:
+        actor_input = build_input(node.platform, target_query(event, node.admin_unit))
+    elif node.actor is not None:
+        actor_input = build_input(
+            node.platform, target_query(event, None, handle=node.actor.canonical_name)
+        )
     else:
         raise ValueError(f"frontier node {node_id} watches neither a place nor an account")
 

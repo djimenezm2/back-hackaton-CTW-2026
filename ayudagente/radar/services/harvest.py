@@ -46,6 +46,9 @@ MAX_ITEMS = 200
 # How many recent runs of the same Actor must have come back empty before it is called down
 ACTOR_DOWN_STREAK = 3
 
+# How far before an event a post may be and still be evidence about it
+STALE_GRACE = timedelta(days=2)
+
 
 class HarvestNotConfigured(RuntimeError):
     """Raised when `APIFY_TOKEN` is missing, so the failure names its cause."""
@@ -61,6 +64,7 @@ class Harvested:
         items_new (int): Observations actually created, after deduplication.
         media (int): Media rows created alongside them.
         skipped (int): Items with no id or no timestamp, which `Observation` cannot store.
+        stale (int): Items that predate the emergency and cannot be evidence about it.
         observation_ids (list[int]): The new observations, for the caller to queue.
     """
 
@@ -68,6 +72,7 @@ class Harvested:
     items_new: int = 0
     media: int = 0
     skipped: int = 0
+    stale: int = 0
     observation_ids: list[int] = field(default_factory=list)
 
 
@@ -103,6 +108,12 @@ def persist_items(job: HarvestJob, items: list[dict], *, is_comment: bool = Fals
         A duplicate is reused rather than skipped. The same post comes back from two different
         queries all the time, and the uniqueness constraint on `(platform, platform_id)` is
         what makes re-harvesting a place cheap instead of destructive.
+
+        Posts predating the emergency are dropped, and that is not a nicety. Only X honours a
+        date filter; Instagram's hashtag scraper has none and TikTok's applies to profiles,
+        not searches, so a live sweep came back 31% older than the event — including posts
+        from previous years. Reading those costs a model call each and puts last year's
+        collection point on today's map.
     """
     result = Harvested(items_returned=len(items))
 
@@ -110,6 +121,10 @@ def persist_items(job: HarvestJob, items: list[dict], *, is_comment: bool = Fals
         fields, media_specs = normalize(job.platform, item, is_comment=is_comment)
         if not fields.get("platform_id") or not fields.get("posted_at"):
             result.skipped += 1
+            continue
+
+        if _predates_the_event(job, fields["posted_at"]):
+            result.stale += 1
             continue
 
         observation, was_created = Observation.objects.get_or_create(
@@ -126,6 +141,12 @@ def persist_items(job: HarvestJob, items: list[dict], *, is_comment: bool = Fals
         result.media += len(media_specs)
 
     return result
+
+
+def _predates_the_event(job: HarvestJob, posted_at) -> bool:
+    """Whether a post is too old to be evidence about this emergency."""
+    occurred_at = job.event.occurred_at
+    return bool(occurred_at and posted_at and posted_at < occurred_at - STALE_GRACE)
 
 
 def run_harvest_job(job_id: int, client=None) -> Harvested:
