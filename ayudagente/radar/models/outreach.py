@@ -72,7 +72,7 @@ class Outreach(models.Model):
     subject = models.CharField(max_length=200, blank=True)  # email only
     body = models.TextField()
     target_url = models.URLField(max_length=1000)  # where the human's click lands
-    drafted_by = models.CharField(max_length=80)  # Azure deployment that wrote it
+    drafted_by = models.CharField(max_length=80)  # model deployment that wrote it
 
     status = models.CharField(
         max_length=20, choices=OutreachStatus.choices, default=OutreachStatus.DRAFT

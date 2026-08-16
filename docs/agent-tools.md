@@ -295,7 +295,7 @@ the agreement.
 | One offer covering several needs | `linear_sum_assignment` is 1:1, so a truckload of water cannot cover three shelters in one pass. Capacity-split virtual rows, or min-cost-flow | realistic demo seeds |
 | Time windows and perishability in matching | `ResourceType.perishable`, `window_start`/`window_end` appear in neither `score_pair` nor candidate generation | delivery realism |
 | Stale-proposal deletion | The pass deletes every `proposed` row it did not re-produce, including one a human just created by hand | manual proposals |
-| Postgres in the default test run | Mark service tests `live`, or narrow `live` to Azure and Apify | whether `make check` covers the services |
+| Postgres in the default test run | Mark service tests `live`, or narrow `live` to the model provider and Apify | whether `make check` covers the services |
 | CLAUDE.md's NetworkX claim | The code uses scipy Hungarian; `networkx` is a dependency nothing imports | doc accuracy |
 | CLAUDE.md's layout rule | Needs a clause for `agent_tools/` | doc accuracy |
 

@@ -221,7 +221,7 @@ class Extraction(models.Model):
     observation = models.OneToOneField(
         Observation, on_delete=models.CASCADE, related_name="extraction"
     )
-    model = models.CharField(max_length=80)  # Azure deployment used
+    model = models.CharField(max_length=80)  # model deployment used
     prompt_version = models.CharField(max_length=20)
 
     classification = models.CharField(max_length=20, choices=ExtractionClass.choices)
