@@ -25,7 +25,7 @@ MARKERS = $(if $(LIVE),-m "",)
 
 .DEFAULT_GOAL := help
 .PHONY: help init up down restart ps logs build rebuild \
-        check lint format types test migrate migrations shell run superuser apikey \
+        check lint format comments types test migrate migrations shell run superuser apikey \
         seed unseed eval harvest pipeline worker
 
 help: ## Show available commands
@@ -56,13 +56,16 @@ build: ## Build stack images
 rebuild: ## Rebuild and recreate the stack
 	$(COMPOSE) up --build -d --force-recreate
 
-check: lint format types test ## Lint, format, types and the hermetic suite
+check: lint format comments types test ## Lint, format, comments, types and the hermetic suite
 
 lint: ## Ruff lint
 	$(UV) run ruff check .
 
 format: ## Ruff format check
 	$(UV) run ruff format --check .
+
+comments: ## Flag multi-line comment blocks; rationale belongs in a docstring
+	$(UV) run tools/check_comments.py ayudagente agent_tools backend tools
 
 types: ## Pyrefly type check
 	$(UV) run pyrefly check

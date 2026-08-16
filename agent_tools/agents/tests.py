@@ -64,8 +64,7 @@ class PromptTests(TestCase):
         self.assertIn("road_distance", prompt)  # straight-line distance is a floor
 
     def test_a_prompt_never_points_at_a_tool_that_was_removed(self):
-        # The failure this catches is silent: the model calls a name that no longer
-        # resolves, gets an error it cannot fix, and the turn dies for no visible reason.
+        # Silent failure: the model calls a dead name and the turn ends for no visible reason
         for toolset in TOOLSETS:
             prompt = render_prompt(toolset, self.event)
             for retired in RETIRED_TOOLS:

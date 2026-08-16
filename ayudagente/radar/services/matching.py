@@ -109,9 +109,11 @@ def _find_transport(need, offer, transports) -> Requirement | None:
     """
     A transport offer that can bridge offer → need: origin near the offer, destination
     near the need or not yet fixed (`destination` null = solver decides).
+
+    Note:
+        Ranked by (destination-free?, pickup distance), so a transport already routed to the
+        need's area wins a tie against one the solver would still have to place.
     """
-    # A transport already routed to the need's area beats a destination-free one:
-    # rank by (destination-free?, pickup distance) so fixed matching routes win ties.
     best, best_rank = None, (True, float("inf"))
     for transport in transports:
         origin_km = geodesic_km(transport.location.point, offer.location.point)

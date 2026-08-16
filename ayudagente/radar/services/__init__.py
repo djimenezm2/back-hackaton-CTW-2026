@@ -18,6 +18,7 @@ from ayudagente.radar.services.frontier import (
     record_actionable_find,
     record_harvest,
 )
+from ayudagente.radar.services.gazetteer import GazetteerError, load_country
 from ayudagente.radar.services.graph import (
     build_graph_payload,
     input_fingerprint,
@@ -45,14 +46,18 @@ from ayudagente.radar.services.requirements import (
     routable,
 )
 from ayudagente.radar.services.routing import RoutingError, plan_trip_stops, road_distance
+from ayudagente.radar.services.sweep import bootstrap_event, build_sweep_query, places_by_zone
 
 __all__ = [
+    "GazetteerError",
     "HarvestNotConfigured",
     "Harvested",
     "RoutingError",
     "best_contact_point",
+    "bootstrap_event",
     "build_graph_payload",
     "build_search_query",
+    "build_sweep_query",
     "create_harvest_job",
     "draft_outreach",
     "find_admin_units",
@@ -63,8 +68,10 @@ __all__ = [
     "get_frontier",
     "input_fingerprint",
     "is_matchable_location",
+    "load_country",
     "match_participants",
     "persist_items",
+    "places_by_zone",
     "plan_trip_stops",
     "propose_match",
     "record_actionable_find",

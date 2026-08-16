@@ -16,8 +16,11 @@ Note:
     agent running every half hour reads identical rows and queues identical jobs all night.
 """
 
+from collections import Counter
 from datetime import timedelta
 
+from django.contrib.gis.db.models.functions import Distance
+from django.contrib.gis.measure import D
 from django.db import transaction
 from django.utils import timezone
 
@@ -46,6 +49,9 @@ IN_FLIGHT_STATUSES = (JobStatus.PENDING, JobStatus.RUNNING)
 
 # How long a target stays off the table after being harvested
 COOLDOWN = timedelta(minutes=20)
+
+# How far a requirement may land from a watched centroid and still credit it
+NEAREST_NODE_KM = 60
 
 
 def get_frontier(event_id: int, limit: int = 60) -> list[FrontierNode]:
@@ -248,30 +254,75 @@ def record_harvest(job: HarvestJob, *, items_new: int, counts_as_evidence: bool 
     node.save(update_fields=fields)
 
 
-def record_actionable_find(observation: Observation, count: int) -> None:
+def record_actionable_find(observation: Observation, requirements: list) -> None:
     """
-    Credit the target that produced actionable content.
+    Credit the watch targets whose places produced actionable content.
 
     Args:
-        observation (Observation): The post that yielded requirements.
-        count (int): How many it produced.
+        observation (Observation): The post that was read.
+        requirements (list[Requirement]): What it produced. Empty credits nothing.
 
     Note:
-        This is the other half of `yield_rate`, and it arrives much later than the harvest
+        Credited by *where the requirement landed*, not by which job fetched the post. A
+        cold-start sweep batches dozens of toponyms into one query and therefore carries no
+        node at all, so crediting the job would throw away everything the broadest and most
+        valuable pass discovers.
+
+        This is also the other half of `yield_rate`, and it arrives long after the harvest
         that earned it — the post has to be extracted, geocoded and ingested first. That lag
-        is why the number is a running total on the node rather than something derived per
-        run: at the moment a run finishes, nobody knows yet whether it found anything.
+        is why the number is a running total rather than something derived per run: when a
+        run finishes, nobody knows yet whether it found anything.
     """
-    if count <= 0 or observation.job_id is None:
+    if not requirements or observation.job_id is None:
         return
 
-    node = FrontierNode.objects.filter(jobs__observations=observation).first()
-    if node is None:
+    credits: Counter[int] = Counter()
+    for requirement in requirements:
+        node = _node_to_credit(observation, requirement)
+        if node is not None:
+            credits[node.pk] += 1
+
+    if not credits:
         return
 
     with transaction.atomic():
-        locked = FrontierNode.objects.select_for_update().get(pk=node.pk)
-        locked.actionable_items += count
-        locked.last_useful_find_at = timezone.now()
-        locked.refresh_yield_rate()
-        locked.save(update_fields=["actionable_items", "last_useful_find_at", "yield_rate"])
+        for node_id, count in credits.items():
+            node = FrontierNode.objects.select_for_update().get(pk=node_id)
+            node.actionable_items += count
+            node.last_useful_find_at = timezone.now()
+            node.refresh_yield_rate()
+            node.save(update_fields=["actionable_items", "last_useful_find_at", "yield_rate"])
+
+
+def _node_to_credit(observation: Observation, requirement) -> FrontierNode | None:
+    """
+    The watch target a requirement belongs to.
+
+    Returns:
+        FrontierNode | None: The node whose place this landed in, or None when it landed
+            somewhere nobody is watching — which is a discovery, not a failure, and is what
+            node promotion will act on.
+
+    Note:
+        Exact administrative match first, nearest watched centroid second. The geocoder does
+        not always resolve an administrative unit, and for a *ranking* signal the nearest
+        watched place is a better answer than none. It is a yield counter, not a claim about
+        which municipality the truck should drive to.
+    """
+    watched = FrontierNode.objects.filter(
+        event=observation.event, platform=observation.platform, actor__isnull=True
+    )
+
+    location = requirement.location
+    if location.admin_unit_id is not None:
+        exact = watched.filter(admin_unit_id=location.admin_unit_id).first()
+        if exact is not None:
+            return exact
+
+    return (
+        watched.filter(admin_unit__centroid__isnull=False)
+        .annotate(separation=Distance("admin_unit__centroid", location.point))
+        .filter(separation__lte=D(km=NEAREST_NODE_KM))
+        .order_by("separation")
+        .first()
+    )

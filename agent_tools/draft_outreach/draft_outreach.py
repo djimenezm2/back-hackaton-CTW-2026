@@ -110,8 +110,7 @@ def draft_outreach(
         if requirement is None:
             return failure(f"requirement {about_requirement_id} does not exist")
 
-    # Asked before writing: `get_or_create` cannot tell us afterwards whether it created,
-    # and comparing bodies gets it backwards for the retry that sends the same text
+    # Asked before writing: `get_or_create` cannot say afterwards whether it created
     anchor = match or requirement
     key = Outreach.build_idempotency_key(
         contact_point.actor_id,

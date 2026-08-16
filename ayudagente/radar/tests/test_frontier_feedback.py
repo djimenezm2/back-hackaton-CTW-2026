@@ -26,7 +26,15 @@ from ayudagente.radar.services.frontier import (
     record_actionable_find,
     record_harvest,
 )
-from ayudagente.radar.tests.factories import PEREIRA, make_event
+from ayudagente.radar.tests.factories import (
+    CALI,
+    PEREIRA,
+    make_actor,
+    make_event,
+    make_location,
+    make_requirement,
+    make_resource,
+)
 
 
 class FrontierBase(TestCase):
@@ -107,31 +115,69 @@ class RecordHarvestTests(FrontierBase):
 
 
 class RecordActionableFindTests(FrontierBase):
-    def test_requirements_credit_the_target_that_produced_them(self):
+    """Credit follows where the requirement landed, not which job fetched the post."""
+
+    def setUp(self):
+        super().setUp()
+        self.water = make_resource("water", "Agua")
+        self.actor = make_actor(self.event, "Barrio")
+
+    def _requirements(self, count: int, point=PEREIRA, admin_unit=None) -> list:
+        location = make_location(point, f"sitio {count} {point.x}", admin_unit=admin_unit)
+        return [
+            make_requirement(self.event, self.actor, self.water, location) for _ in range(count)
+        ]
+
+    def test_requirements_credit_the_place_they_landed_in(self):
         job = self._job()
         record_harvest(job, items_new=100)
 
-        record_actionable_find(self._observation(job), 3)
+        record_actionable_find(self._observation(job), self._requirements(3))
 
         self.node.refresh_from_db()
         self.assertEqual(self.node.actionable_items, 3)
         self.assertEqual(self.node.yield_rate, 3.0)  # 3 per 100 harvested
         self.assertIsNotNone(self.node.last_useful_find_at)
 
+    def test_an_exact_administrative_match_wins(self):
+        job = self._job()
+
+        record_actionable_find(self._observation(job), self._requirements(2, admin_unit=self.unit))
+
+        self.node.refresh_from_db()
+        self.assertEqual(self.node.actionable_items, 2)
+
+    def test_a_sweep_with_no_node_still_credits_the_place(self):
+        # The broadest and most valuable pass carries no node; crediting the job loses it all
+        sweep = self._job(node=None)
+
+        record_actionable_find(self._observation(sweep), self._requirements(4))
+
+        self.node.refresh_from_db()
+        self.assertEqual(self.node.actionable_items, 4)
+
     def test_finds_accumulate_across_posts(self):
         job = self._job()
         record_harvest(job, items_new=100)
 
-        record_actionable_find(self._observation(job, "1"), 2)
-        record_actionable_find(self._observation(job, "2"), 4)
+        record_actionable_find(self._observation(job, "1"), self._requirements(2))
+        record_actionable_find(self._observation(job, "2"), self._requirements(4))
 
         self.node.refresh_from_db()
         self.assertEqual(self.node.actionable_items, 6)
 
+    def test_a_requirement_far_from_every_watched_place_credits_nobody(self):
+        job = self._job()
+
+        record_actionable_find(self._observation(job), self._requirements(3, point=CALI))
+
+        self.node.refresh_from_db()
+        self.assertEqual(self.node.actionable_items, 0)
+
     def test_a_post_that_produced_nothing_changes_nothing(self):
         job = self._job()
 
-        record_actionable_find(self._observation(job), 0)
+        record_actionable_find(self._observation(job), [])
 
         self.node.refresh_from_db()
         self.assertEqual(self.node.actionable_items, 0)
@@ -142,7 +188,7 @@ class RecordActionableFindTests(FrontierBase):
         observation.job = None
         observation.save(update_fields=["job"])
 
-        record_actionable_find(observation, 5)  # must not raise
+        record_actionable_find(observation, self._requirements(5))  # must not raise
 
         self.node.refresh_from_db()
         self.assertEqual(self.node.actionable_items, 0)

@@ -425,8 +425,7 @@ class ResourceResolutionTests(TestCase):
         self.assertNotIn("error", result)
 
     def test_translation_is_refused_rather_than_guessed(self):
-        # 'water' must not resolve to 'agua_potable': a near-miss that loose would also
-        # match the wrong resource. The catalog comes back instead.
+        # 'water' must not resolve to 'agua_potable'; the catalog comes back instead
         self.assertIn("error", self._search("water"))
 
     def test_half_a_coordinate_is_rejected(self):

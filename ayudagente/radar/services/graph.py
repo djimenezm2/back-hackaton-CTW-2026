@@ -24,8 +24,7 @@ VISIBLE_MATCH_STATUSES = (
     MatchStatus.DELIVERED,
 )
 
-# True while a rebuild is writing matches, so the signals its own writes fire become no-ops
-# instead of queueing another rebuild of the same graph.
+# True while a rebuild writes matches, so the signals its own writes fire become no-ops
 rebuilding: ContextVar[bool] = ContextVar("rebuilding", default=False)
 
 
@@ -106,8 +105,7 @@ def build_graph_payload(event: Event) -> dict:
     nodes = []
     for actor in actors:
         open_reqs: list[Requirement] = getattr(actor, "open_requirements", [])
-        # An actor often has no resolved location of its own while its requirements do;
-        # the map still needs a dot, so fall back to the first open requirement's point.
+        # Fall back to a requirement's point: a node with no dot vanishes from the map
         location = actor.location
         if location is None and open_reqs:
             location = open_reqs[0].location

@@ -70,7 +70,7 @@ def process_observation(self, observation_id: int, *, force: bool = False) -> di
 
     extraction = Extractor().run(observation, force=force)
     outcome: Ingested = Ingestor().ingest(extraction)
-    record_actionable_find(observation, len(outcome.requirements))
+    record_actionable_find(observation, outcome.requirements)
 
     return {
         "observation": observation_id,

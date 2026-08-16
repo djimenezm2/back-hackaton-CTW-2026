@@ -72,8 +72,7 @@ class Network:
         ).select_related("need", "offer", "via_transport")
 
         for match in matches:
-            # Only proposals: everything past `proposed` is already inside the
-            # requirement's own `covered_quantity`, and adding both counts it twice
+            # Only proposals: anything past `proposed` is already in `covered_quantity`
             if match.status == MatchStatus.PROPOSED:
                 self.committed[match.need_id] = self.committed.get(match.need_id, Decimal("0")) + (
                     match.committed_quantity or Decimal("0")

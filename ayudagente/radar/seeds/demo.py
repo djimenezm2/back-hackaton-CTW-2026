@@ -189,8 +189,7 @@ CONTACTS = [
 ]
 
 REQUIREMENTS = [
-    # (slug, actor_slug, direction, resource_key, qty, covered, unit, urgency,
-    #  point_key, admin_code, dest_point_key, dest_admin_code, text)
+    # slug, actor, direction, resource, qty, covered, unit, urgency, origin, destination, text
     (
         "req_agua_quibdo",
         "coliseo_quibdo",
@@ -403,8 +402,7 @@ REQUIREMENTS = [
     ),
 ]
 
-# admin_code → (center_key, dominant direction, barrios/veredas)
-# Impact zone reports needs; support zone (rest of the country) offers. 1 in 4 flips.
+# admin_code → (center_key, dominant direction, barrios). 1 in 4 rows flips direction
 ZONES = {
     # --- IMPACT: main cities, 20 barrios each
     "66001": (
@@ -757,8 +755,7 @@ ZONES = {
     ),
 }
 
-# plantas_electricas stays out on purpose: the curated "no reachable supply" scenario
-# depends on nobody offering it
+# generators stays out, so the curated "no reachable supply" scenario keeps firing
 BULK_RESOURCES = [
     ("water", 400),
     ("food", 150),
