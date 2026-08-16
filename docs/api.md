@@ -399,10 +399,14 @@ The catalog, for a filter menu. Not paged, not scoped to an event.
 **Filter on `key`, never on `name`.** Keys are English and stable; names are Spanish because
 they reach an end user, and they will be rewritten.
 
-The catalog currently holds duplicates left over from an early seed — `agua` beside `water`,
-`transporte` beside `transport`. Only the English-keyed ones carry requirements. Until they are
-cleaned up, hide entries whose requirement count is zero or your filter menu shows every
-resource twice.
+24 entries, parents before children. `parent` is what lets an offer of a category satisfy a
+need for a specific item — `pet_food` sits under `food`, so a generic food offer covers it.
+Group the menu by `parent` and a top-level entry stands on its own.
+
+The catalog is shared by every event and grows: when the extractor meets a resource nobody
+declared, it creates the entry rather than dropping the item. A new one arrives with its `name`
+equal to its `key` until somebody names it, which is the only case where you will see an
+English label.
 
 ---
 
