@@ -137,7 +137,12 @@ CELERY_BEAT_SCHEDULE = {
     "radar-tick": {
         "task": "ayudagente.radar.tasks.tick",
         "schedule": float(os.environ.get("TICK_SECONDS", 300)),
-    }
+    },
+    # Free and unattended by design: it proposes paused events and nothing else
+    "radar-watch": {
+        "task": "ayudagente.radar.tasks.watch_for_events",
+        "schedule": float(os.environ.get("WATCH_SECONDS", 900)),
+    },
 }
 
 # OpenAI. A model per role, mapped onto the GPT-5.6 tiers

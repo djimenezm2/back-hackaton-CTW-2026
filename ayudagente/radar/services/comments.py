@@ -17,9 +17,19 @@ Note:
     frontier agent never sees a post. So the agent allocates depth across places and accounts;
     this picks posts, mechanically, from what the pipeline already judged actionable.
 
-    Only TikTok is wired. Its comment shape has a normalizer proven against 227 real rows from
-    the pilot; the other three would each need one, and a comment stored through the wrong
-    normalizer is worse than one not stored at all.
+    All four are pulled. The normalizers were checked against a live event and every platform's
+    replies came back whole, so nothing here is blocked on parsing.
+
+    What each platform's replies are *worth* is still open, and the one comparison that exists
+    is not fair: TikTok's 33% actionable was measured after the ranking below was fixed, while
+    Instagram's 6% and X's 7% were measured before it, with the engagement ranking that is now
+    known to select press and entertainment. On Instagram that means the largest accounts,
+    whose comments are applause by construction — the confound and the result are the same
+    thing. X's number rests on 43 replies besides, which is noise.
+
+    So `COMMENT_PLATFORMS` is where a platform would be dropped once there is evidence to drop
+    it on. Cutting one now would be filtering for what might be poor rather than for what
+    cannot be acted on, which is the distinction this system is built around.
 """
 
 import logging
@@ -48,6 +58,9 @@ COMMENTS_PER_POST = 100
 SMOOTHING = 50
 
 ACTIONABLE = (ExtractionClass.NEED, ExtractionClass.OFFER, ExtractionClass.BOTH)
+
+# Narrow this only on a fair measurement, never on a hunch — see the module note
+COMMENT_PLATFORMS = tuple(COMMENT_ACTOR_BY_PLATFORM)
 
 
 def worth_reading(event: Event, platform: str) -> QuerySet:
@@ -119,12 +132,12 @@ def queue_comment_pulls(event: Event, limit: int | None = None) -> int:
             engaged posts have all been read.
 
     Note:
-        Only runs for platforms with a proven comments Actor, so this quietly does nothing for
-        three of the four. That is deliberate — see the module note.
+        Runs for every platform in `COMMENT_PLATFORMS`, which is all of them until a fair
+        comparison says otherwise.
     """
     created = 0
 
-    for platform in COMMENT_ACTOR_BY_PLATFORM:
+    for platform in COMMENT_PLATFORMS:
         posts = list(worth_reading(event, platform)[:POSTS_PER_JOB])
         if not posts:
             continue

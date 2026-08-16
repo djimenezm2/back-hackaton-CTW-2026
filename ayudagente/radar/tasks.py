@@ -283,6 +283,36 @@ def tick() -> dict:
     return run_tick()
 
 
+@shared_task
+def watch_for_events() -> dict:
+    """
+    Look for disasters nobody has told us about yet.
+
+    Returns:
+        dict: What this pass proposed, so one log line says whether the world moved.
+
+    Note:
+        Scheduled on its own beat rather than folded into `tick`, and the reason is the
+        separation the whole design rests on: this one is free. It reads a public feed, writes
+        `paused` events and spends nothing, so it can run unattended forever — while `tick`
+        only ever touches events a human armed.
+
+        A dead feed is logged and swallowed here. Detection failing must not take the beat down
+        with it; the harvest loop has nothing to do with USGS being up.
+    """
+    from ayudagente.radar.services.watch import watch
+
+    try:
+        proposed = watch()
+    except Exception as exc:
+        logger.warning("watch pass failed: %s", exc)
+        return {"proposed": 0, "error": str(exc)}
+
+    for event in proposed:
+        logger.info("detected %s (id %s), paused until armed", event.name, event.pk)
+    return {"proposed": len(proposed), "events": [e.pk for e in proposed]}
+
+
 def pending_observations(event_id: int, *, force: bool = False):
     """
     The posts of an event still waiting to be read.

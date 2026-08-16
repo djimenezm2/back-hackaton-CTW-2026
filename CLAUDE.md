@@ -15,7 +15,9 @@ make up                            # Postgres (PostGIS + pgvector) and Redis
 make migrate
 uv run manage.py load_taxonomy     # resource catalog — every environment needs it
 uv run manage.py load_gazetteer CO # a country's places, per country
-uv run manage.py start_event ...   # open an emergency and queue its sweep
+uv run manage.py watch_events      # poll USGS, propose new events — free, scrapes nothing
+uv run manage.py arm_event <id>    # give a proposed event permission to be harvested
+uv run manage.py start_event ...   # open an emergency by hand and queue its sweep
 make check                         # ruff + comment style + pyrefly + pytest
 ```
 
@@ -295,12 +297,21 @@ Apify is marked `live` and excluded, so `make test LIVE=1` is the opt-in.
 (`services/matching.py`, `outreach.py`, `requirements.py`, `routing.py`, `graph.py`), the
 harvest → normalize → extract → geocode → identity → ingest pipeline and its Celery tasks,
 both agents, the HTTP API behind an API key ([`docs/api.md`](docs/api.md)), tooling, docker
-stack.
+stack and its runbook ([`docs/deploy.md`](docs/deploy.md)).
 
-**Not built yet:** the watch stage that detects an event in the first place. Everything else
-that used to be on this list is in — promotion and automatic `exhausted` in
-`services/promotion.py`, media download, the dispatch write endpoint. The `unverified`
-quarantine was dropped rather than built: it is a label, for the reasons above.
+**Not built yet:** nothing from the original slice list. The watch stage landed in
+`services/watch.py`, promotion and automatic `exhausted` in `services/promotion.py`, plus media
+download and the dispatch write endpoint. The `unverified` quarantine was dropped rather than
+built: it is a label, for the reasons above.
+
+**Detecting and arming are two acts, and that is the cost control.** `watch_events` reads USGS
+— free, no key — and writes candidates as `paused`, which every writer already refuses through
+`Event.is_harvestable`. So a candidate costs nothing and `arm_event` is the single place a human
+decides to spend. Do not let detection activate anything, however obvious the disaster: the
+guarantee that a feed cannot start billing is worth more than the minutes it saves.
+
+A candidate whose country has no gazetteer is reported and *not* recorded. It could not have
+been swept anyway, and a row nothing can act on looks like progress.
 
 **Promotion is built and starved.** `promote_accounts` requires an `Actor` behind the posting
 handle, and that link is only written when the model reads the account as the author. Against a

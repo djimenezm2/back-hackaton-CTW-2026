@@ -10,6 +10,7 @@ one is the whole point: without it a perpetual agent reads identical rows foreve
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.test import TestCase
 from django.utils import timezone
@@ -186,6 +187,59 @@ class RunHarvestJobTests(HarvestBase):
         media = Media.objects.get()
         self.assertEqual(media.source_url, "https://pbs.twimg.com/a.jpg")
         self.assertEqual(media.observation.platform_id, "1")
+
+
+class ResilienceTests(HarvestBase):
+    """
+    One bad row must never cost the batch, and a job that dies must say it died.
+
+    Note:
+        Both come from the same live failure. A Facebook comment carried an identifier longer
+        than its column; the write raised, the batch was lost, and the job stayed `running`
+        with no error. A running job is in flight, so nothing ever retried it and that target
+        went quiet permanently — the worst shape a bug can take here, because it looks like
+        the platform having nothing to say.
+    """
+
+    def test_an_item_the_database_rejects_does_not_cost_the_batch(self):
+        job = self._job()
+        overlong = tweet("2")
+        overlong["id"] = "x" * 300  # longer than platform_id can hold
+
+        result = run_harvest_job(
+            job.pk, client=FakeClient(items=[tweet("1"), overlong, tweet("3")])
+        )
+
+        self.assertEqual(result.items_new, 2)
+        self.assertEqual(result.skipped, 1)
+        self.assertEqual(Observation.objects.filter(event=self.event).count(), 2)
+
+    def test_that_job_still_finishes_rather_than_hanging_in_running(self):
+        job = self._job()
+        overlong = tweet("2")
+        overlong["id"] = "x" * 300
+
+        run_harvest_job(job.pk, client=FakeClient(items=[overlong]))
+
+        job.refresh_from_db()
+        self.assertNotEqual(job.status, JobStatus.RUNNING)
+        self.assertIsNotNone(job.finished_at)
+
+    def test_a_failure_while_storing_is_recorded_on_the_job(self):
+        job = self._job()
+
+        with (
+            patch(
+                "ayudagente.radar.services.harvest.persist_items",
+                side_effect=RuntimeError("disk on fire"),
+            ),
+            self.assertRaises(RuntimeError),
+        ):
+            run_harvest_job(job.pk, client=FakeClient(items=[tweet("1")]))
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatus.FAILED)
+        self.assertIn("disk on fire", job.error)
 
 
 class StalenessTests(HarvestBase):

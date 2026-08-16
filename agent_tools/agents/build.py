@@ -27,12 +27,14 @@ from pathlib import Path
 from typing import NamedTuple
 
 from deepagents import create_deep_agent
+from django.db.models import Count
 from langgraph.graph.state import CompiledStateGraph
 
 from agent_tools.agents.checkpointer import get_checkpointer
 from agent_tools.agents.llm import build_chat_model
 from agent_tools.registry import get_toolset
 from ayudagente.radar.models import Event
+from ayudagente.radar.views.policy import OPEN_REQUIREMENT_STATUSES
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 
@@ -98,6 +100,60 @@ def load_prompt(name: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def describe_event(event: Event) -> str:
+    """
+    What is known about the emergency and what the board looks like right now.
+
+    Args:
+        event (Event): The emergency the conversation is about.
+
+    Returns:
+        str: A few lines for the prompt — the disaster's own facts, then live totals.
+
+    Note:
+        Counted at render time, and that is free because the prompt is rebuilt per request.
+        Without it the agent knows a name and a date and has to spend a tool call to answer
+        "¿qué está pasando?" — the most common opening question there is.
+
+        The top resources are the part worth the query. "Lo que más falta es agua y
+        transporte, sobre todo en Quibdó" is an orientation a person can act on, and it is the
+        one answer no single `match_resource` call produces.
+    """
+    from ayudagente.radar.choices import Direction, RequirementStatus
+    from ayudagente.radar.models import Actor, Requirement
+
+    lines = []
+    if event.magnitude:
+        lines.append(f"Magnitude {event.magnitude}.")
+    places = list(event.affected_units.values_list("name", flat=True)[:8])
+    if places:
+        lines.append(f"Areas reported affected: {', '.join(places)}.")
+
+    live = Requirement.objects.filter(event=event, status__in=OPEN_REQUIREMENT_STATUSES)
+    needs = live.filter(direction=Direction.NEEDS).count()
+    offers = live.filter(direction=Direction.OFFERS).count()
+    weak = live.filter(status=RequirementStatus.UNVERIFIED).count()
+    actors = Actor.objects.filter(event=event, merged_into__isnull=True).count()
+    lines.append(
+        f"Right now: {needs} open needs and {offers} open offers across {actors} accounts, "
+        f"of which {weak} rest on a single post."
+    )
+
+    scarce = (
+        live.filter(direction=Direction.NEEDS)
+        .values("resource__name")
+        .annotate(n=Count("id"))
+        .order_by("-n")[:5]
+    )
+    if scarce:
+        lines.append(
+            "Most asked for: "
+            + ", ".join(f"{r['resource__name']} ({r['n']})" for r in scarce)
+            + "."
+        )
+    return "\n".join(lines)
+
+
 def render_prompt(name: str, event: Event, location: Coordinates | None = None) -> str:
     """
     Fill a prompt template with the facts of one event.
@@ -118,6 +174,7 @@ def render_prompt(name: str, event: Event, location: Coordinates | None = None) 
         occurred_at=event.occurred_at.strftime("%d %B %Y, %H:%M UTC"),
         country_name=COUNTRY_NAMES.get(event.country_code, event.country_code),
         user_location=describe_location(location),
+        event_facts=describe_event(event),
     )
 
 

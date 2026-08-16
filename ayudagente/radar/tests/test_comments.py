@@ -19,6 +19,7 @@ from ayudagente.radar.choices import (
 from ayudagente.radar.models import Extraction, HarvestJob
 from ayudagente.radar.services.apify_inputs import build_comment_input
 from ayudagente.radar.services.comments import (
+    COMMENT_PLATFORMS,
     POSTS_PER_JOB,
     queue_comment_pulls,
     worth_reading,
@@ -136,11 +137,15 @@ class QueueTests(CommentsBase):
     def test_nothing_to_read_queues_nothing(self):
         self.assertEqual(queue_comment_pulls(self.event), 0)
 
-    def test_every_platform_gets_its_own_pull(self):
+    def test_only_the_platforms_worth_reading_get_pulled(self):
+        # Instagram replies measured 6% actionable and X 7%, against TikTok's 33%
         for platform in Platform.values:
             self._post(f"{platform}-1", platform=platform)
 
-        self.assertEqual(queue_comment_pulls(self.event), len(Platform.values))
+        self.assertEqual(queue_comment_pulls(self.event), len(COMMENT_PLATFORMS))
+
+        pulled = set(HarvestJob.objects.values_list("platform", flat=True))
+        self.assertEqual(pulled, set(COMMENT_PLATFORMS))
 
     def test_the_job_is_marked_as_a_comment_pull_so_the_right_normalizer_runs(self):
         self._post("1")

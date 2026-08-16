@@ -28,7 +28,7 @@ from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -114,33 +114,65 @@ def persist_items(job: HarvestJob, items: list[dict], *, is_comment: bool = Fals
         not searches, so a live sweep came back 31% older than the event — including posts
         from previous years. Reading those costs a model call each and puts last year's
         collection point on today's map.
+
+        One unstorable item costs one item, never the batch. A live Facebook pull died on a
+        single identifier longer than its column and took 200 good comments with it, and the
+        job was left saying `running` — which blocks that target forever, because a running
+        job is in flight and nothing retries it. Each row therefore commits on its own.
     """
     result = Harvested(items_returned=len(items))
 
     for item in items:
-        fields, media_specs = normalize(job.platform, item, is_comment=is_comment)
-        if not fields.get("platform_id") or not fields.get("posted_at"):
+        try:
+            with transaction.atomic():
+                stored = _store(job, item, is_comment, result)
+        except DatabaseError as exc:
+            logger.warning("job %s: an item could not be stored: %s", job.pk, exc)
             result.skipped += 1
             continue
 
-        if _predates_the_event(job, fields["posted_at"]):
-            result.stale += 1
-            continue
-
-        observation, was_created = Observation.objects.get_or_create(
-            platform=job.platform,
-            platform_id=fields["platform_id"],
-            defaults={**fields, "event": job.event, "job": job, "raw": item},
-        )
-        if not was_created:
+        if stored is None:
             continue
 
         result.items_new += 1
-        result.observation_ids.append(observation.pk)
-        Media.objects.bulk_create(Media(observation=observation, **media) for media in media_specs)
-        result.media += len(media_specs)
+        result.observation_ids.append(stored)
 
     return result
+
+
+def _store(job: HarvestJob, item: dict, is_comment: bool, result: Harvested) -> int | None:
+    """
+    Store one item, or say why it is not stored.
+
+    Returns:
+        int | None: The new observation's id, or None when the item was skipped, stale or
+            already held.
+
+    Note:
+        Its own transaction, so a row the database rejects is rolled back alone. Without that
+        the failed statement poisons the surrounding transaction and every later item in the
+        batch fails too, which looks exactly like the Actor having returned nothing.
+    """
+    fields, media_specs = normalize(job.platform, item, is_comment=is_comment)
+    if not fields.get("platform_id") or not fields.get("posted_at"):
+        result.skipped += 1
+        return None
+
+    if _predates_the_event(job, fields["posted_at"]):
+        result.stale += 1
+        return None
+
+    observation, was_created = Observation.objects.get_or_create(
+        platform=job.platform,
+        platform_id=fields["platform_id"],
+        defaults={**fields, "event": job.event, "job": job, "raw": item},
+    )
+    if not was_created:
+        return None
+
+    Media.objects.bulk_create(Media(observation=observation, **media) for media in media_specs)
+    result.media += len(media_specs)
+    return observation.pk
 
 
 def _predates_the_event(job: HarvestJob, posted_at) -> bool:
@@ -171,6 +203,11 @@ def run_harvest_job(job_id: int, client=None) -> Harvested:
         The job is marked `running` before the call and never inside the same transaction as
         the persistence. A worker killed mid-run must leave a row that says `running`, because
         a row still saying `pending` would be picked up again by the next dispatch.
+
+        Storing is inside the same guard as fetching. It used to be outside, so a row the
+        database rejected left the job saying `running` with no error on it — and a running job
+        is in flight, so nothing retried it and that target was never harvested again. A job
+        that dies has to say it died.
     """
     job = HarvestJob.objects.select_related("event", "node").get(pk=job_id)
     if job.status != JobStatus.PENDING:
@@ -181,12 +218,12 @@ def run_harvest_job(job_id: int, client=None) -> Harvested:
 
     try:
         run, items = _fetch(job, client or build_client())
+        result = persist_items(job, items, is_comment=job.target_kind == HarvestTarget.COMMENTS)
     except Exception as exc:
         logger.exception("harvest job %s failed", job_id)
         _finish(job, JobStatus.FAILED, error=f"{type(exc).__name__}: {exc}")
         raise
 
-    result = persist_items(job, items, is_comment=job.target_kind == HarvestTarget.COMMENTS)
     status = _outcome_status(job, result)
 
     cost = _cost(run)

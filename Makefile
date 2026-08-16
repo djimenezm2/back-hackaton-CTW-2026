@@ -26,7 +26,7 @@ MARKERS = $(if $(LIVE),-m "",)
 .DEFAULT_GOAL := help
 .PHONY: help init up down restart ps logs build rebuild \
         check lint format comments types test migrate migrations run apikey seed unseed \
-        worker beat
+        worker beat events watch arm
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*##"; printf "Available commands:\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  make %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -105,5 +105,15 @@ apikey: ## Mint an API key into .env. ARGS="--replace" drops the existing ones
 
 run: ## Development server
 	$(MANAGE) runserver $(ARGS)
+
+
+events: ## List events and whether each may be harvested. ARGS="--active"
+	$(MANAGE) events $(ARGS)
+
+watch: ## Poll USGS and propose new events. Costs nothing and scrapes nothing
+	$(MANAGE) watch_events --list $(ARGS)
+
+arm: ## Let an event be harvested. ARGS="<event_id> --hashtags sismo,chocó"
+	$(MANAGE) arm_event $(ARGS)
 
 
