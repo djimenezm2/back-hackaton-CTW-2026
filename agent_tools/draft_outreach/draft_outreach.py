@@ -145,6 +145,7 @@ def draft_outreach(
         "status": outreach.status,
         "channel": outreach.channel,
         "purpose": outreach.purpose,
+        "target_actor_id": outreach.target_actor_id,
         "target_actor": outreach.target_actor.canonical_name,
         "target_url": outreach.target_url,
         "text_is_prefilled": outreach.text_is_prefilled,

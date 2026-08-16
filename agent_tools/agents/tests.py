@@ -23,7 +23,12 @@ from agent_tools.agents import Coordinates, render_prompt, translate_chunk
 from agent_tools.agents.build import describe_location, load_prompt
 from agent_tools.agents.checkpointer import build_connection_string
 from agent_tools.agents.llm import LLMNotConfigured, accepts_temperature, build_chat_model
-from agent_tools.agents.streaming import stream_agent, summarize_tool_result
+from agent_tools.agents.streaming import (
+    MAX_FOCUS_IDS,
+    collect_focus,
+    stream_agent,
+    summarize_tool_result,
+)
 from agent_tools.registry import TOOLSETS
 from ayudagente.radar.tests.factories import ApiTestCase, make_event
 
@@ -202,6 +207,66 @@ class TranslateChunkTests(TestCase):
 
     def test_a_non_json_tool_result_is_still_reported(self):
         self.assertEqual(summarize_tool_result("plain text"), {"ok": True, "preview": "plain text"})
+
+    def test_the_ids_a_tool_returned_are_streamed_so_a_map_can_point_at_them(self):
+        # The prose never names a row; without this the map has nothing to resolve
+        payload = json.dumps(
+            {
+                "count": 2,
+                "candidates": [
+                    {"requirement_id": 7, "actor_id": 3, "actor": "Coliseo Mayor"},
+                    {"requirement_id": 9, "actor_id": 5, "actor": "JAC Niño Jesús"},
+                ],
+            }
+        )
+        message = ToolMessage(content=payload, name="match_resource", tool_call_id="c1")
+
+        events = translate_chunk("updates", {"tools": {"messages": [message]}})
+
+        self.assertEqual(events[0]["type"], "tool_end")
+        self.assertEqual(
+            events[1],
+            {"type": "focus", "name": "match_resource", "actors": [3, 5], "requirements": [7, 9]},
+        )
+
+    def test_a_result_naming_nothing_drawable_sends_no_focus(self):
+        message = ToolMessage(
+            content=json.dumps({"count": 3, "balance": [{"resource_key": "agua"}]}),
+            name="get_balance",
+            tool_call_id="c1",
+        )
+
+        kinds = [e["type"] for e in translate_chunk("updates", {"tools": {"messages": [message]}})]
+
+        self.assertEqual(kinds, ["tool_end"])
+
+    def test_ids_are_found_however_deep_the_payload_buries_them(self):
+        # find_gaps returns four lists; check_coverage nests carriers inside a row
+        focus = collect_focus(
+            {
+                "unattended": [{"actor_id": 3}],
+                "cut_off": [{"actor_id": 8, "carriers": [{"actor_id": 11}]}],
+            }
+        )
+
+        self.assertEqual(focus["actors"], [3, 8, 11])
+
+    def test_the_same_actor_named_twice_is_one_id(self):
+        focus = collect_focus({"rows": [{"actor_id": 3}, {"actor_id": 3}, {"actor_id": 4}]})
+
+        self.assertEqual(focus["actors"], [3, 4])
+
+    def test_a_flag_that_happens_to_be_a_bool_is_not_an_id(self):
+        # `True` is an `int` in Python, and a `1` in the actors list is a real node
+        self.assertEqual(collect_focus({"actor_id": True, "requirement_id": 4})["actors"], [])
+
+    def test_more_ids_than_a_camera_can_frame_are_capped(self):
+        rows = [{"actor_id": i} for i in range(50)]
+
+        self.assertEqual(len(collect_focus({"rows": rows})["actors"]), MAX_FOCUS_IDS)
+
+    def test_a_result_that_is_not_json_focuses_nothing(self):
+        self.assertEqual(collect_focus("plain text"), {})
 
 
 class FakeGraph:

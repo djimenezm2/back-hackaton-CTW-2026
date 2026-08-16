@@ -5,6 +5,12 @@ The coordinator watching this is waiting during an emergency, so silence is expe
 makes the wait tolerable is not speed — it is seeing *what the agent is doing*: which tool
 it reached for, what came back, then the answer arriving word by word.
 
+The answer arrives as prose and never names a row, so a map watching this stream has nothing
+to point at. `focus` is what closes that: the ids a tool actually returned, which are the same
+ids `GET /api/events/<id>/graph/` draws, so a client can resolve one to a node without a
+lookup. It says what the agent *looked at*, not what it concluded — deciding which of those
+the sentence is about is the client's job.
+
 Note:
     `translate_chunk` is deliberately pure. Everything interesting about this module is the
     mapping from LangGraph's shapes to the frontend's, and keeping it free of the graph, the
@@ -24,6 +30,19 @@ from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
 # Tool results can be large; the stream carries a summary and the frontend asks for detail
 MAX_PREVIEW_CHARS = 400
+
+# Result keys that name something drawable, and the bucket each one belongs to
+FOCUS_KEYS = {
+    "actor_id": "actors",
+    "target_actor_id": "actors",
+    "requirement_id": "requirements",
+    "need_id": "requirements",
+    "offer_id": "requirements",
+    "via_transport_id": "requirements",
+}
+
+# A turn that points at forty places points at nothing
+MAX_FOCUS_IDS = 12
 
 
 def sse(payload: dict) -> str:
@@ -64,6 +83,47 @@ def summarize_tool_result(content: Any) -> dict:
     return summary
 
 
+def collect_focus(content: Any) -> dict:
+    """
+    Pull the ids a tool returned out of its payload, wherever they sit in it.
+
+    Returns:
+        dict: `actors` and `requirements`, both in order of appearance and deduplicated, or
+            an empty dict when the result names nothing drawable.
+
+    Note:
+        This walks the shape rather than each tool, so a tool added later is covered without
+        touching this module. Order is not incidental either — tools return nearest or most
+        urgent first, and that is exactly the order a client should prefer.
+    """
+    if isinstance(content, str):
+        try:
+            content = json.loads(content)
+        except (ValueError, TypeError):
+            return {}
+
+    found: dict[str, list[int]] = {"actors": [], "requirements": []}
+
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                bucket = FOCUS_KEYS.get(key)
+                # `bool` is an `int` in Python, and `reachable_by_us` is not an id
+                if bucket and isinstance(item, int) and not isinstance(item, bool):
+                    if item not in found[bucket]:
+                        found[bucket].append(item)
+                else:
+                    walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(content)
+    if not found["actors"] and not found["requirements"]:
+        return {}
+    return {bucket: ids[:MAX_FOCUS_IDS] for bucket, ids in found.items()}
+
+
 def translate_chunk(mode: str, chunk: Any) -> list[dict]:
     """
     Map one LangGraph stream chunk to zero or more frontend events.
@@ -102,6 +162,9 @@ def translate_chunk(mode: str, chunk: Any) -> list[dict]:
                         "result": summarize_tool_result(message.content),
                     }
                 )
+                focus = collect_focus(message.content)
+                if focus:
+                    events.append({"type": "focus", "name": message.name, **focus})
             elif isinstance(message, AIMessage) and message.tool_calls:
                 events.extend(
                     {

@@ -98,6 +98,8 @@ data: {"type": "tool_start", "name": "get_balance", "args": {"only_deficits": tr
 
 data: {"type": "tool_end", "name": "get_balance", "result": {"ok": true, "count": 3}}
 
+data: {"type": "focus", "name": "match_resource", "actors": [3, 5], "requirements": [7, 9]}
+
 data: {"type": "token", "text": "En Quibdó"}
 
 data: {"type": "token", "text": " faltan 2600 L"}
@@ -110,6 +112,7 @@ data: {"type": "done", "thread_id": "0f1c…"}
 | `start` | Once, first | `thread_id` — store it |
 | `tool_start` | The agent decided to call a tool | `name`, `args`, `node` |
 | `tool_end` | That tool returned | `name`, `result` (a summary, see below) |
+| `focus` | That tool named rows the map can draw | `name`, `actors`, `requirements` (see below) |
 | `token` | A piece of the answer | `text` — append it, do not replace |
 | `done` | Once, last, on success | `thread_id` |
 | `error` | Once, last, on failure | `error` — a string safe to show |
@@ -140,6 +143,31 @@ failed request — the turn is still going and will very likely succeed.
 
 To show what a tool actually returned, call the underlying read endpoint yourself, or use
 the ids the agent surfaces in its answer.
+
+### `focus`
+
+The answer is prose and never names a row, so a map reading this stream would have nothing to
+point at. `focus` carries the ids the tool returned — **the same ids
+`GET /api/events/<id>/graph/` draws**, so `actors` resolve against `nodes[].id` and
+`requirements` against `nodes[].requirements[].id`, with no extra lookup.
+
+```json
+{"type": "focus", "name": "match_resource", "actors": [3, 5], "requirements": [7, 9]}
+```
+
+Both lists come in the tool's own order — nearest or most urgent first — deduplicated and
+capped at twelve. The event is sent only when a result names something; most `tool_end`s have
+no `focus` beside them.
+
+**These are what the agent *looked at*, not what it concluded.** A `match_resource` over
+twelve candidates emits twelve ids and then writes a sentence about two of them. Deciding
+which is the client's job: match the prose against the names it already holds, and fall back
+to framing the whole set. An id may also name an actor the map does not draw — one with no
+coordinates, too coarse a location, or nothing open — so treat a miss as normal.
+
+Wait for `done` before moving a camera. Ids arrive mid-turn, but the agent may call another
+tool and change subject; a view that flies on every `focus` chases the reasoning instead of
+following the answer.
 
 ---
 
