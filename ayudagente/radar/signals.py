@@ -22,14 +22,23 @@ logger = logging.getLogger(__name__)
 
 
 def _schedule_rebuild(event_id: int | None) -> None:
-    """Queue one rebuild per event per transaction, however many rows the write touched."""
+    """
+    Queue one rebuild per event per transaction, however many rows the write touched.
+
+    Args:
+        event_id (int | None): Event whose graph went stale. None when the written row
+            had no event, which is nothing to rebuild.
+
+    Note:
+        The dedupe reads the connection's own on-commit queue, so a bulk load (seeds,
+        ingestion) enqueues once per event instead of once per row, and warns once rather
+        than once per row when the broker is down. That queue is transaction-scoped and
+        cleared on rollback, so nothing leaks between requests or between tests.
+    """
     if event_id is None or rebuilding.get():
         return
 
-    # Dedupe against the connection's own on-commit queue so a bulk load (seeds,
-    # ingestion) enqueues once per event instead of once per row — and warns once, not
-    # once per row, when the broker is down. The queue is transaction-scoped and cleared
-    # on rollback, so nothing leaks between requests or between tests.
+    # Skip when this event already has a rebuild queued in this transaction
     connection = transaction.get_connection()
     for entry in connection.run_on_commit:
         func = entry[1]  # (savepoint_ids, func, robust) in current Django

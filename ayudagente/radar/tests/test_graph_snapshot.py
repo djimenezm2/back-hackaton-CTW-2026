@@ -79,8 +79,7 @@ class GraphSnapshotTests(ApiTestCase):
         self.assertEqual(snapshot.payload["edges"][0]["status"], MatchStatus.CONTACTED)
 
     def test_writes_queue_one_rebuild_per_event_per_transaction(self):
-        # A fresh event: setUp's writes already queued a rebuild for self.event inside
-        # this same test transaction, and the dedupe would (correctly) swallow a second.
+        # A fresh event, because setUp already queued a rebuild for self.event here
         other = make_event(name="Otro evento")
         with (
             patch("ayudagente.radar.tasks.rebuild_graph.delay") as delay,
