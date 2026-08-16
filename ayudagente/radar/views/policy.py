@@ -15,6 +15,9 @@ from ayudagente.radar.choices import MatchStatus, RequirementStatus
 # Live work, the only thing worth drawing on a map
 OPEN_REQUIREMENT_STATUSES = (RequirementStatus.OPEN, RequirementStatus.PARTIAL)
 
+# Reported but uncorroborated. Shown when asked for, never matched, never written to
+QUARANTINED_STATUSES = (RequirementStatus.UNVERIFIED,)
+
 # Matches nobody has ruled out yet
 VISIBLE_MATCH_STATUSES = (
     MatchStatus.PROPOSED,

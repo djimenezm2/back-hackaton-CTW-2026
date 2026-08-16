@@ -133,6 +133,10 @@ Breaking any of these is a bug even when tests pass.
 9. Every scraping query carries a toponym from the event's country, or it pulls in other
    countries' disasters.
 10. Cost is recorded, never used to decide.
+11. A requirement nothing corroborates is `unverified`: shown, never matched, never written
+    to. It leaves quarantine on evidence, never on a human's say-so.
+12. A second sighting of the same actor, resource and direction attaches as evidence. It
+    never becomes a second row.
 
 ## Identity resolution is a cascade
 
@@ -161,6 +165,38 @@ The catalog has already split once in production — `agua` beside `water`, `tra
 `transport`, four more — and the fix was a hand-written `LEGACY_KEYS` list. Those exact keys
 now resolve on trigram alone. Anything that writes `ResourceType` directly instead of going
 through `resolve_resource` reintroduces that split.
+
+## Nothing enters the graph unconfirmed, and nothing waits for a person
+
+A requirement is born `unverified` unless something backs it: two independent posts, a
+platform-verified account, enough credibility, or an organisation reporting a need. Quarantine
+forbids matching and outreach; it never hides anything, because four unconfirmed reports in one
+place is itself a reason to look.
+
+Every route out is one the world can walk alone. A quarantine only a human can drain runs at
+the speed of human review, which is the scarcest resource in an emergency and the one this
+system exists to spend less of.
+
+**Needs and offers are not symmetric.** A false need wastes a delivery; a false offer makes a
+real need look *covered*, so it stops being proposed and nobody notices. Offers carry the
+higher bar because that failure is silent.
+
+Two things no credibility overrides: a location coarser than `admin_2`, which matching refuses
+anyway, and `text_image_conflict`, which is the signature of recycled imagery.
+
+`routable()` already filters on open statuses, so quarantine excludes a requirement from
+matching without matching knowing it exists. Anything that widens that filter reopens the door.
+
+## Corroboration only exists because rows are merged
+
+A second post about the same actor, resource and direction attaches to the existing
+requirement instead of creating another. Before that, corroboration was 0% *by construction* —
+a live run produced 162 rows from 60 posts of which 38 were repeats, four identical "punto
+oficial de acopio" rows for one actor. Every repeat was a node the map drew twice, and no
+requirement could ever have two pieces of evidence.
+
+Merging fixes three things at once: the graph shrinks, `covered_quantity` starts meaning
+something, and the only automatic route out of quarantine becomes reachable.
 
 ## Matching runs on an in-memory graph
 

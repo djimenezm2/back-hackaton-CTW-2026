@@ -36,6 +36,7 @@ from ayudagente.radar.choices import ContactKind, MentionRole, ResolutionMethod
 from ayudagente.radar.llm import Role, client, model_for
 from ayudagente.radar.models import Actor, ActorMention, ContactPoint, Location, Observation
 from ayudagente.radar.schemas import ActorMatchVerdict, ExtractedActor, ExtractedContact
+from ayudagente.radar.services import credibility
 from ayudagente.radar.services.text import normalize
 
 TRIGRAM_CERTAIN = 0.82  # above this, two names are one name
@@ -285,19 +286,28 @@ class IdentityResolver:
             first_seen_at=observation.posted_at or now,
             last_seen_at=observation.posted_at or now,
         )
+        credibility.refresh(actor, observation, is_author=extracted.is_author)
         return Resolution(actor=actor, method=ResolutionMethod.MANUAL, confidence=1.0)
 
     def _record(
         self, resolution: Resolution, extracted: ExtractedActor, observation: Observation
     ) -> None:
-        """Leave the trail that makes a wrong merge diagnosable rather than mysterious."""
+        """
+        Leave the trail that makes a wrong merge diagnosable rather than mysterious.
+
+        Note:
+            Credibility is refreshed here rather than only on creation. An actor first seen in
+            a stranger's post and later posting from its own verified account has to gain the
+            badge; scoring once at creation would freeze it at whatever the first mention was.
+        """
+        credibility.refresh(resolution.actor, observation, is_author=extracted.is_author)
         surface = extracted.name.strip() or resolution.actor.canonical_name
         ActorMention.objects.get_or_create(
             actor=resolution.actor,
             observation=observation,
             surface_form=surface[:250],
             defaults={
-                "role": MentionRole.SUBJECT,
+                "role": MentionRole.AUTHOR if extracted.is_author else MentionRole.SUBJECT,
                 "resolved_by": resolution.method,
                 "resolution_confidence": resolution.confidence,
                 "rationale": resolution.rationale,

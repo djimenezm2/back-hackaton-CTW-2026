@@ -8,6 +8,7 @@ will act on it.
 """
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 
 from django.db import transaction
 from django.utils import timezone
@@ -22,6 +23,7 @@ from ayudagente.radar.models import (
     ResourceType,
 )
 from ayudagente.radar.schemas import ExtractedContact, ExtractedItem, ExtractionResult
+from ayudagente.radar.services import verification
 from ayudagente.radar.services.geocoding import Geocoder
 from ayudagente.radar.services.identity import IdentityResolver
 from ayudagente.radar.services.resources import resolve_resource
@@ -175,11 +177,16 @@ class Ingestor:
         )
         self._record_contacts(item.contacts, resolution.actor, observation)
 
+        resource = self._resource(item.resource_key, item.resource)
+        existing = self._already_known(observation, resolution.actor, resource, item)
+        if existing is not None:
+            return self._corroborate(existing, observation, item)
+
         requirement = Requirement.objects.create(
             event=observation.event,
             actor=resolution.actor,
             direction=Direction.NEEDS if item.direction == "needs" else Direction.OFFERS,
-            resource=self._resource(item.resource_key, item.resource),
+            resource=resource,
             free_text=item.resource[:300],
             quantity=item.quantity,
             unit=item.unit[:30],
@@ -190,6 +197,77 @@ class Ingestor:
             last_seen_at=observation.posted_at or timezone.now(),
         )
         requirement.evidence.add(observation)
+        verification.apply(requirement, evidence_count=1)
+        return requirement
+
+    def _already_known(
+        self, observation: Observation, actor, resource: ResourceType, item: ExtractedItem
+    ) -> Requirement | None:
+        """
+        Find the live requirement this item is another sighting of.
+
+        Args:
+            observation (Observation): The post being read.
+            actor: The resolved actor.
+            resource (ResourceType): The resolved resource.
+            item (ExtractedItem): The thing needed or offered.
+
+        Returns:
+            Requirement | None: The existing row, or None when this is genuinely new.
+
+        Note:
+            Matched on actor, resource and direction, which is what makes two posts about the
+            same collection point one node instead of two. A live run produced 162 rows from
+            60 posts of which 38 were repeats — four identical "punto oficial de acopio" rows
+            for one actor — and every repeat was a node the map drew twice.
+
+            Nothing else is compared. A quantity that changed between posts is new information
+            about the same requirement, not a different requirement, and treating it as one
+            would make the duplicate come back.
+        """
+        return (
+            Requirement.objects.filter(
+                event=observation.event,
+                actor=actor,
+                resource=resource,
+                direction=Direction.NEEDS if item.direction == "needs" else Direction.OFFERS,
+                status__in=(RequirementStatus.OPEN, RequirementStatus.PARTIAL),
+            )
+            .order_by("created_at")
+            .first()
+        )
+
+    def _corroborate(
+        self, requirement: Requirement, observation: Observation, item: ExtractedItem
+    ) -> Requirement:
+        """
+        Attach a second sighting to a requirement that already exists.
+
+        Returns:
+            Requirement: The same row, now backed by one more observation.
+
+        Note:
+            Corroboration is the point, not the saved row. `evidence` is what says a claim was
+            made twice by different posts, and it is the only automatic way a requirement can
+            earn its way out of quarantine without a person looking at it.
+
+            A stated quantity fills a blank one but never overwrites a number already there.
+            The first post that bothered to count is better evidence than a later one that
+            rounded.
+        """
+        requirement.evidence.add(observation)
+
+        changed = ["last_seen_at"]
+        requirement.last_seen_at = max(
+            requirement.last_seen_at, observation.posted_at or requirement.last_seen_at
+        )
+        if requirement.quantity is None and item.quantity is not None:
+            requirement.quantity = Decimal(str(item.quantity))
+            requirement.unit = item.unit[:30]
+            changed += ["quantity", "unit"]
+
+        requirement.save(update_fields=changed)
+        verification.apply(requirement)
         return requirement
 
     def _resource(self, key: str, label: str = "") -> ResourceType:

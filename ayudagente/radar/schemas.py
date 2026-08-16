@@ -48,10 +48,26 @@ class ExtractedContact(BaseModel):
 
 
 class ExtractedActor(BaseModel):
-    """Who needs or offers the thing."""
+    """
+    Who needs or offers the thing.
+
+    Note:
+        `is_author` decides whose reputation the claim carries. A post *by* a collection
+        center saying "we are receiving donations" is that center speaking; a stranger saying
+        "the center is receiving donations" is hearsay about it, and the follower count and
+        verification badge on that post belong to the stranger.
+
+        Asked of the model rather than derived from the handle, because the two almost never
+        match as strings — "Abaco (Bancos de Alimentos)" against `@abacocolombia`.
+    """
 
     name: str = Field(description="The name as written, without normalizing or expanding it.")
     kind: ActorKind
+    is_author: bool = Field(
+        default=False,
+        description="True when this entity is the account that published the post, rather "
+        "than someone the post talks about.",
+    )
 
 
 class ExtractedItem(BaseModel):

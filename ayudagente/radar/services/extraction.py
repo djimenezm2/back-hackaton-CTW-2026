@@ -21,7 +21,7 @@ from ayudagente.radar.llm import Role, client, model_for
 from ayudagente.radar.models import Extraction, Media, Observation
 from ayudagente.radar.schemas import ExtractionResult
 
-PROMPT_VERSION = "v6"
+PROMPT_VERSION = "v7"
 
 SYSTEM_PROMPT = """\
 You read one social media post from a disaster zone and pull out what someone needs or what

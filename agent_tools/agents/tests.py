@@ -123,8 +123,7 @@ class TranslateChunkTests(TestCase):
         self.assertEqual(events, [{"type": "token", "text": "En Quibdó"}])
 
     def test_a_token_arriving_as_content_blocks_is_still_a_token_event(self):
-        # What the Responses API actually sends. Read as a string it is empty, and the
-        # browser draws a bubble that never fills.
+        # What the Responses API sends; read as a string it is empty and the bubble never fills
         chunk = AIMessageChunk(content=[{"type": "text", "text": "En Quibdó", "index": 0}])
 
         self.assertEqual(

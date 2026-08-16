@@ -81,8 +81,7 @@ def translate_chunk(mode: str, chunk: Any) -> list[dict]:
     if mode == "messages":
         message = chunk[0] if isinstance(chunk, tuple) else chunk
         if isinstance(message, AIMessageChunk):
-            # `.text` reads string and block-list content alike, and keeps only the text
-            # blocks: a reasoning summary is not the answer and must not be shown as one
+            # `.text` keeps only text blocks: a reasoning summary is not the answer
             text = str(message.text)
             if text:
                 events.append({"type": "token", "text": text})
