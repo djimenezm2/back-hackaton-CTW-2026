@@ -20,6 +20,7 @@ RATIONALE_MIN_CHARS = 20
 class ProposeMatchInput(BaseModel):
     """Arguments for `propose_match`."""
 
+    event_id: int = Field(description="The emergency this conversation is bound to.")
     need_id: int = Field(description="The requirement with direction 'needs'.")
     offer_id: int = Field(description="The requirement with direction 'offers'.")
     rationale: str = Field(
@@ -39,6 +40,7 @@ class ProposeMatchInput(BaseModel):
 
 @tool("propose_match", args_schema=ProposeMatchInput)
 def propose_match(
+    event_id: int,
     need_id: int,
     offer_id: int,
     rationale: str,
@@ -51,7 +53,8 @@ def propose_match(
     proposal a human has already acted on is never overwritten — if the pairing has moved
     past `proposed`, the reply says so and nothing changes.
 
-    Both sides must be in the same event and located precisely enough to deliver to; a
+    Both sides must belong to this conversation's emergency and be located precisely
+    enough to deliver to; a
     location covering a whole region is refused. Beyond about 30 km the pair needs
     `via_transport_id`, an offer of transport that can bridge them.
 
@@ -74,6 +77,13 @@ def propose_match(
     missing = sorted(wanted - found.keys())
     if missing:
         return failure(f"requirements not found: {missing}")
+
+    foreign = sorted(r.id for r in found.values() if r.event_id != event_id)
+    if foreign:
+        return failure(
+            f"requirements from another emergency: {foreign}",
+            "pair only rows from the event this conversation is bound to",
+        )
 
     try:
         match = propose_match_service(

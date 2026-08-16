@@ -11,7 +11,7 @@ unlike returning `(value, error)` pairs, it leaves the resolved values properly 
 rather than perpetually optional.
 """
 
-from ayudagente.radar.models import AdminUnit, Event, ResourceType
+from ayudagente.radar.models import AdminUnit, Event, Requirement, ResourceType
 from ayudagente.radar.services import find_admin_units, resolve_resource, resource_catalog
 
 # A miss should show the whole taxonomy; the cap is a backstop, not an expectation
@@ -107,6 +107,53 @@ def get_event(event_id: int) -> Event:
     if event is None:
         raise ToolInputError(failure(f"event {event_id} does not exist"))
     return event
+
+
+def require_same_event(event_id: int, row, label: str) -> None:
+    """
+    Refuse a row belonging to another emergency.
+
+    Args:
+        event_id (int): The event the conversation is bound to.
+        row: Anything carrying an `event_id` — a requirement, an actor, a frontier node.
+        label (str): How to name it in the error.
+
+    Raises:
+        ToolInputError: When the row is from a different event.
+
+    Note:
+        Ids from a previous conversation, or from a listing the coordinator is looking at on
+        another screen, are valid integers that resolve to real rows. Without this the reply
+        is about a different disaster and reads exactly like a correct one.
+    """
+    if row.event_id != event_id:
+        raise ToolInputError(
+            failure(
+                f"{label} {row.id} belongs to another emergency",
+                "answer only about the event this conversation is bound to",
+            )
+        )
+
+
+def get_requirement(requirement_id: int, event_id: int, *related: str) -> Requirement:
+    """
+    Fetch one requirement of this event.
+
+    Args:
+        requirement_id (int): The row to read.
+        event_id (int): The event the conversation is bound to.
+        *related: Relations to follow in the same query.
+
+    Raises:
+        ToolInputError: When it does not exist, or belongs to another emergency. Reported
+            apart because they call for different behaviour: a stale id is the agent's to
+            correct, a foreign one is a question it must not answer at all.
+    """
+    requirement = Requirement.objects.select_related(*related).filter(id=requirement_id).first()
+    if requirement is None:
+        raise ToolInputError(failure(f"requirement {requirement_id} does not exist"))
+    require_same_event(event_id, requirement, "requirement")
+    return requirement
 
 
 def resolve_resource_arg(resource_key: str) -> ResourceType:

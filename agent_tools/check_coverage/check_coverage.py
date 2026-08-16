@@ -15,14 +15,15 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from agent_tools.network import DIRECT_REACH_KM, Network
-from agent_tools.shared import failure
+from agent_tools.shared import ToolInputError, get_requirement
 from ayudagente.radar.choices import MatchStatus
-from ayudagente.radar.models import Match, Requirement
+from ayudagente.radar.models import Match
 
 
 class CheckCoverageInput(BaseModel):
     """Arguments for `check_coverage`."""
 
+    event_id: int = Field(description="The emergency this conversation is bound to.")
     requirement_id: int = Field(
         description="The need or offer to inspect, as returned in `requirement_id`."
     )
@@ -41,7 +42,7 @@ def _party(requirement) -> dict:
 
 
 @tool("check_coverage", args_schema=CheckCoverageInput)
-def check_coverage(requirement_id: int) -> dict:
+def check_coverage(event_id: int, requirement_id: int) -> dict:
     """
     Say whether one need is really being handled, and what the help depends on.
 
@@ -60,13 +61,12 @@ def check_coverage(requirement_id: int) -> dict:
     unserved, it is cut off, and that needs a different response — finding supply rather
     than routing it.
     """
-    requirement = (
-        Requirement.objects.select_related("actor", "resource", "location__admin_unit", "event")
-        .filter(id=requirement_id)
-        .first()
-    )
-    if requirement is None:
-        return failure(f"requirement {requirement_id} does not exist")
+    try:
+        requirement = get_requirement(
+            requirement_id, event_id, "actor", "resource", "location__admin_unit", "event"
+        )
+    except ToolInputError as exc:
+        return exc.payload
 
     network = Network(requirement.event_id)
     matches = (

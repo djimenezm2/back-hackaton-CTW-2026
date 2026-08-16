@@ -15,6 +15,11 @@ Note:
     Where the coordinator is arrives the same way and for the same reason. It is the one
     fact no tool can look up — the browser is the only thing that knows it — and half the
     questions asked during an emergency are implicitly about it.
+
+    The prompt says which event this is; the toolset is what enforces it. `get_toolset`
+    binds the id into every tool and takes the argument out of the schema, so an answer
+    about the emergency on the coordinator's screen does not rest on the model transcribing
+    a number correctly on every call.
 """
 
 from functools import lru_cache
@@ -137,14 +142,15 @@ def build_agent(
 
     Note:
         Rebuilt per request rather than cached. Compiling is cheap next to a model call,
-        and a cached graph would hold a prompt bound to whichever event happened to be
-        first — a bug that surfaces only when a second emergency starts. Rebuilding is
+        and a cached graph would hold a prompt and a toolset bound to whichever event
+        happened to be first — a bug that surfaces only when a second emergency starts.
+        Rebuilding is
         also what lets the position follow a coordinator who moves between turns: the
         prompt is re-rendered every time, while the thread keeps its history.
     """
     return create_deep_agent(
         model=build_chat_model(),
-        tools=get_toolset(toolset),
+        tools=get_toolset(toolset, event.id),
         system_prompt=render_prompt(toolset, event, location),
         checkpointer=checkpointer if checkpointer is not None else get_checkpointer(),
         name=f"ayudagente-{toolset}",

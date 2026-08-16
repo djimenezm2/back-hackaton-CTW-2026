@@ -14,7 +14,7 @@ Note:
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from agent_tools.shared import failure
+from agent_tools.shared import ToolInputError, failure, require_same_event
 from ayudagente.radar.services import get_actor, get_contact_points
 from ayudagente.radar.services.outreach import contact_link
 
@@ -22,6 +22,7 @@ from ayudagente.radar.services.outreach import contact_link
 class GetActorContactsInput(BaseModel):
     """Arguments for `get_actor_contacts`."""
 
+    event_id: int = Field(description="The emergency this conversation is bound to.")
     actor_id: int = Field(
         description="Actor to look up, as returned in `actor_id` by match_resource."
     )
@@ -73,7 +74,7 @@ def serialize(contact) -> dict:
 
 
 @tool("get_actor_contacts", args_schema=GetActorContactsInput)
-def get_actor_contacts(actor_id: int, include_unusable: bool = False) -> dict:
+def get_actor_contacts(event_id: int, actor_id: int, include_unusable: bool = False) -> dict:
     """
     List the ways to reach an actor, best channel first.
 
@@ -92,6 +93,12 @@ def get_actor_contacts(actor_id: int, include_unusable: bool = False) -> dict:
     actor = get_actor(actor_id)
     if actor is None:
         return failure(f"actor {actor_id} does not exist", contacts=[])
+
+    # Checked after the merge is resolved: what matters is where the surviving row lives
+    try:
+        require_same_event(event_id, actor, "actor")
+    except ToolInputError as exc:
+        return {**exc.payload, "contacts": []}
 
     contacts = get_contact_points(actor, usable_only=not include_unusable)
 

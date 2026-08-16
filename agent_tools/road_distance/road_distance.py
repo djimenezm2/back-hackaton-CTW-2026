@@ -11,8 +11,7 @@ from django.contrib.gis.geos import Point
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from agent_tools.shared import ToolInputError, failure
-from ayudagente.radar.models import Requirement
+from agent_tools.shared import ToolInputError, failure, get_requirement
 from ayudagente.radar.services import RoutingError
 from ayudagente.radar.services import road_distance as road_distance_service
 
@@ -20,6 +19,7 @@ from ayudagente.radar.services import road_distance as road_distance_service
 class RoadDistanceInput(BaseModel):
     """Arguments for `road_distance`. Give either two requirement ids or two coordinates."""
 
+    event_id: int = Field(description="The emergency this conversation is bound to.")
     from_requirement_id: int | None = Field(
         default=None, description="Start at this requirement's location."
     )
@@ -33,22 +33,17 @@ class RoadDistanceInput(BaseModel):
 
 
 def _point_for(
-    requirement_id: int | None, lat: float | None, lon: float | None, label: str
+    event_id: int, requirement_id: int | None, lat: float | None, lon: float | None, label: str
 ) -> Point:
     """
     Resolve one endpoint from a requirement id or a coordinate pair.
 
     Raises:
-        ToolInputError: When the requirement is missing, or when only half a coordinate
-            pair was given.
+        ToolInputError: When the requirement is missing or belongs to another emergency, or
+            when only half a coordinate pair was given.
     """
     if requirement_id is not None:
-        requirement = (
-            Requirement.objects.select_related("location").filter(id=requirement_id).first()
-        )
-        if requirement is None:
-            raise ToolInputError(failure(f"requirement {requirement_id} does not exist"))
-        return requirement.location.point
+        return get_requirement(requirement_id, event_id, "location").location.point
 
     if lat is None or lon is None:
         raise ToolInputError(
@@ -62,6 +57,7 @@ def _point_for(
 
 @tool("road_distance", args_schema=RoadDistanceInput)
 def road_distance(
+    event_id: int,
     from_requirement_id: int | None = None,
     to_requirement_id: int | None = None,
     from_lat: float | None = None,
@@ -84,8 +80,8 @@ def road_distance(
     it is a floor, never an overestimate. Say so rather than presenting it as a drive.
     """
     try:
-        origin = _point_for(from_requirement_id, from_lat, from_lon, "from")
-        destination = _point_for(to_requirement_id, to_lat, to_lon, "to")
+        origin = _point_for(event_id, from_requirement_id, from_lat, from_lon, "from")
+        destination = _point_for(event_id, to_requirement_id, to_lat, to_lon, "to")
     except ToolInputError as exc:
         return exc.payload
 

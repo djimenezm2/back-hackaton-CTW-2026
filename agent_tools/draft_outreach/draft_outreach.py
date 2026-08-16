@@ -13,9 +13,9 @@ Note:
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from agent_tools.shared import failure
+from agent_tools.shared import ToolInputError, failure, get_requirement, require_same_event
 from ayudagente.radar.choices import ContactKind, OutreachPurpose
-from ayudagente.radar.models import ContactPoint, Match, Outreach, Requirement
+from ayudagente.radar.models import ContactPoint, Match, Outreach
 from ayudagente.radar.services import draft_outreach as draft_outreach_service
 from ayudagente.radar.services.outreach import CHANNEL_BY_CONTACT_KIND
 
@@ -28,6 +28,7 @@ PURPOSE_VALUES = ", ".join(OutreachPurpose.values)
 class DraftOutreachInput(BaseModel):
     """Arguments for `draft_outreach`."""
 
+    event_id: int = Field(description="The emergency this conversation is bound to.")
     contact_point_id: int = Field(
         description="Channel to use, from `get_actor_contacts`. Its owner is the recipient."
     )
@@ -58,6 +59,7 @@ class DraftOutreachInput(BaseModel):
 
 @tool("draft_outreach", args_schema=DraftOutreachInput)
 def draft_outreach(
+    event_id: int,
     contact_point_id: int,
     purpose: str,
     body: str,
@@ -77,7 +79,8 @@ def draft_outreach(
     rewritten body does not replace an existing draft.
 
     Refused when the actor asked not to be contacted, when the channel cannot carry a
-    message, or when the recipient is not a party to the match being introduced.
+    message, when the recipient is not a party to the match being introduced, or when any
+    of them belongs to a different emergency than this conversation.
 
     Write the body in Spanish. It is read by someone in the middle of an emergency.
     """
@@ -90,25 +93,30 @@ def draft_outreach(
             "one short paragraph: who you are, what you found, what you propose",
         )
 
-    contact_point = ContactPoint.objects.select_related("actor").filter(id=contact_point_id).first()
-    if contact_point is None:
-        return failure(f"contact point {contact_point_id} does not exist")
-
-    match = None
-    if match_id is not None:
-        match = (
-            Match.objects.select_related("need__actor", "offer__actor", "via_transport__actor")
-            .filter(id=match_id)
-            .first()
+    try:
+        contact_point = (
+            ContactPoint.objects.select_related("actor").filter(id=contact_point_id).first()
         )
-        if match is None:
-            return failure(f"match {match_id} does not exist")
+        if contact_point is None:
+            raise ToolInputError(failure(f"contact point {contact_point_id} does not exist"))
+        require_same_event(event_id, contact_point.actor, "actor")
 
-    requirement = None
-    if about_requirement_id is not None:
-        requirement = Requirement.objects.filter(id=about_requirement_id).first()
-        if requirement is None:
-            return failure(f"requirement {about_requirement_id} does not exist")
+        match = None
+        if match_id is not None:
+            match = (
+                Match.objects.select_related("need__actor", "offer__actor", "via_transport__actor")
+                .filter(id=match_id)
+                .first()
+            )
+            if match is None:
+                raise ToolInputError(failure(f"match {match_id} does not exist"))
+            require_same_event(event_id, match.need, "need")
+
+        requirement = None
+        if about_requirement_id is not None:
+            requirement = get_requirement(about_requirement_id, event_id)
+    except ToolInputError as exc:
+        return exc.payload
 
     # Asked before writing: `get_or_create` cannot say afterwards whether it created
     anchor = match or requirement

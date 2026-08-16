@@ -9,6 +9,7 @@ the output of one tool is accepted as the input of the next.
 from decimal import Decimal
 
 from django.test import TestCase
+from langchain_core.tools import tool as tool_decorator
 
 from agent_tools.create_harvest_job import create_harvest_job
 from agent_tools.draft_outreach import draft_outreach
@@ -17,7 +18,14 @@ from agent_tools.get_balance import get_balance
 from agent_tools.get_frontier import get_frontier
 from agent_tools.match_resource import match_resource
 from agent_tools.propose_match import propose_match
-from agent_tools.registry import ALL_TOOLS, COORDINATION_TOOLS, FRONTIER_TOOLS, get_toolset
+from agent_tools.registry import (
+    ALL_TOOLS,
+    COORDINATION_TOOLS,
+    EVENT_ARG,
+    FRONTIER_TOOLS,
+    bind_event,
+    get_toolset,
+)
 from agent_tools.road_distance import road_distance
 from ayudagente.radar.choices import (
     ActorKind,
@@ -67,7 +75,7 @@ class RegistryTests(TestCase):
 
     def test_an_unknown_toolset_raises_rather_than_returning_nothing(self):
         with self.assertRaises(KeyError):
-            get_toolset("does_not_exist")
+            get_toolset("does_not_exist", 1)
 
     def test_every_tool_describes_itself_for_the_model(self):
         for tool in ALL_TOOLS:
@@ -75,6 +83,73 @@ class RegistryTests(TestCase):
                 self.assertGreater(len(tool.description), 80, "docstring is the prompt")
                 for field in tool.args.values():
                     self.assertTrue(field.get("description"), "every argument is explained")
+
+    def test_every_tool_can_be_scoped_to_an_event(self):
+        # A tool that skips the argument would silently answer about every emergency
+        for tool in ALL_TOOLS:
+            with self.subTest(tool=tool.name):
+                self.assertIn(EVENT_ARG, tool.args_schema.model_fields)
+
+
+class EventBindingTests(TestCase):
+    """The event is not something the model gets to choose."""
+
+    def setUp(self):
+        self.event = make_event()
+        self.other = make_event(name="Otro sismo")
+        self.agua = make_resource("agua")
+
+    def _need(self, event):
+        return make_requirement(
+            event,
+            make_actor(event, f"Barrio {event.id}"),
+            self.agua,
+            make_location(PEREIRA, f"Barrio {event.id}"),
+            quantity=Decimal(100),
+        )
+
+    def test_the_model_never_sees_the_event_argument(self):
+        for tool in get_toolset("coordination", self.event.id):
+            with self.subTest(tool=tool.name):
+                self.assertNotIn(EVENT_ARG, tool.args)
+
+    def test_a_bound_tool_keeps_its_name_and_description(self):
+        # The name is what the prompt refers to and what the frontend labels the step with
+        bound = {tool.name: tool for tool in get_toolset("coordination", self.event.id)}
+        for tool in COORDINATION_TOOLS:
+            with self.subTest(tool=tool.name):
+                self.assertEqual(bound[tool.name].description, tool.description)
+
+    def test_a_bound_tool_answers_from_its_own_event(self):
+        self._need(self.event)
+        self._need(self.other)
+        balance = {tool.name: tool for tool in get_toolset("coordination", self.event.id)}[
+            "get_balance"
+        ]
+
+        rows = balance.invoke({})["balance"]
+
+        self.assertEqual(len(rows), 1)  # one event's need, not both
+
+    def test_a_row_from_another_emergency_is_refused_not_answered(self):
+        foreign = self._need(self.other)
+        coverage = {tool.name: tool for tool in get_toolset("coordination", self.event.id)}[
+            "check_coverage"
+        ]
+
+        result = coverage.invoke({"requirement_id": foreign.id})
+
+        self.assertIn("error", result)
+        self.assertIn("another emergency", result["error"])
+
+    def test_a_tool_without_the_argument_is_refused_at_build_time(self):
+        @tool_decorator("unscoped")
+        def unscoped(actor_id: int) -> dict:
+            """A tool that forgot to declare which emergency it reads."""
+            return {"actor_id": actor_id}
+
+        with self.assertRaises(KeyError):
+            bind_event(unscoped, self.event.id)
 
 
 class FailuresAreValuesTests(TestCase):
@@ -95,10 +170,24 @@ class FailuresAreValuesTests(TestCase):
 
     def test_writes_report_missing_rows(self):
         cases = [
-            (propose_match, {"need_id": 1, "offer_id": 2, "rationale": "x" * 30}),
-            (draft_outreach, {"contact_point_id": 1, "purpose": "answer", "body": "y" * 60}),
+            (
+                propose_match,
+                {"event_id": self.event.id, "need_id": 1, "offer_id": 2, "rationale": "x" * 30},
+            ),
+            (
+                draft_outreach,
+                {
+                    "event_id": self.event.id,
+                    "contact_point_id": 1,
+                    "purpose": "answer",
+                    "body": "y" * 60,
+                },
+            ),
             (create_harvest_job, {"event_id": 1, "node_id": 1, "rationale": "z" * 30}),
-            (road_distance, {"from_requirement_id": 1, "to_requirement_id": 2}),
+            (
+                road_distance,
+                {"event_id": self.event.id, "from_requirement_id": 1, "to_requirement_id": 2},
+            ),
         ]
         for tool, args in cases:
             with self.subTest(tool=tool.name):
@@ -195,7 +284,9 @@ class ActorContactsToolTests(TestCase):
         # The reader is a member of the public: a fact about a phone is not a phone
         self._contact(ContactKind.EMAIL, "ong@pereira.org")
 
-        row = get_actor_contacts.invoke({"actor_id": self.actor.id})["contacts"][0]
+        row = get_actor_contacts.invoke({"event_id": self.event.id, "actor_id": self.actor.id})[
+            "contacts"
+        ][0]
 
         self.assertEqual(row["value"], "ong@pereira.org")
         self.assertIn("contact_point_id", row)  # the id is what other tools take
@@ -213,7 +304,10 @@ class ActorContactsToolTests(TestCase):
         self._contact(ContactKind.EMAIL, "ong@pereira.org")
 
         kinds = [
-            c["kind"] for c in get_actor_contacts.invoke({"actor_id": self.actor.id})["contacts"]
+            c["kind"]
+            for c in get_actor_contacts.invoke(
+                {"event_id": self.event.id, "actor_id": self.actor.id}
+            )["contacts"]
         ]
 
         self.assertEqual(kinds, ["email", "phone"])
@@ -221,9 +315,9 @@ class ActorContactsToolTests(TestCase):
     def test_a_payment_account_is_not_offered_as_a_channel(self):
         self._contact(ContactKind.PAYMENT, "3001112233", payment_network="nequi")
 
-        usable = get_actor_contacts.invoke({"actor_id": self.actor.id})
+        usable = get_actor_contacts.invoke({"event_id": self.event.id, "actor_id": self.actor.id})
         everything = get_actor_contacts.invoke(
-            {"actor_id": self.actor.id, "include_unusable": True}
+            {"event_id": self.event.id, "actor_id": self.actor.id, "include_unusable": True}
         )
 
         self.assertEqual(usable["count"], 0)
@@ -232,7 +326,7 @@ class ActorContactsToolTests(TestCase):
     def test_a_merged_actor_resolves_to_the_one_that_absorbed_it(self):
         duplicate = make_actor(self.event, "ong pereira", merged_into=self.actor)
 
-        result = get_actor_contacts.invoke({"actor_id": duplicate.id})
+        result = get_actor_contacts.invoke({"event_id": self.event.id, "actor_id": duplicate.id})
 
         self.assertEqual(result["actor_id"], self.actor.id)
 
@@ -241,7 +335,7 @@ class ActorContactsToolTests(TestCase):
         middle = make_actor(self.event, "ong", merged_into=self.actor)
         oldest = make_actor(self.event, "la ong", merged_into=middle)
 
-        result = get_actor_contacts.invoke({"actor_id": oldest.id})
+        result = get_actor_contacts.invoke({"event_id": self.event.id, "actor_id": oldest.id})
 
         self.assertEqual(result["actor_id"], self.actor.id)
 
@@ -252,7 +346,7 @@ class ActorContactsToolTests(TestCase):
         other.merged_into = self.actor
         other.save()
 
-        result = get_actor_contacts.invoke({"actor_id": self.actor.id})
+        result = get_actor_contacts.invoke({"event_id": self.event.id, "actor_id": self.actor.id})
 
         self.assertIn(result["actor_id"], {self.actor.id, other.id})  # returns, wrong or not
 
@@ -280,6 +374,7 @@ class ProposeMatchToolTests(TestCase):
 
     def _propose(self, **kwargs):
         args = {
+            "event_id": self.event.id,
             "need_id": self.need.id,
             "offer_id": self.offer.id,
             "rationale": "Vecino ofrece agua a 3 km de una necesidad crítica del Barrio.",
@@ -359,6 +454,7 @@ class DraftOutreachToolTests(TestCase):
 
     def _draft(self, **kwargs):
         args = {
+            "event_id": self.event.id,
             "contact_point_id": self.contact.id,
             "purpose": OutreachPurpose.ANSWER,
             "body": self.body,

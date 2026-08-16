@@ -42,10 +42,19 @@ Content-Type: application/json
 
 | Field | Required | Notes |
 |---|---|---|
-| `event_id` | yes | From `GET /api/events/`. Everything is scoped to one emergency. |
+| `event_id` | yes | From `GET /api/events/`. Bound into every tool, so the answer cannot come from another emergency — see below. |
 | `message` | yes | Spanish. Up to 2000 characters. |
 | `thread_id` | no | Omit to start a conversation; the server returns one to reuse. |
 | `location` | no | Where the person asking is. Omit it entirely when you do not have one. |
+
+### Scope
+
+`event_id` is not a hint. The server resolves it before the stream opens and binds it into
+every tool the agent holds, removing the argument from the schema the model sees. The
+emergency the coordinator has open is therefore the only one the answer can come from, even
+if the question names another — asking about a different event gets a refusal rather than
+somebody else's disaster. Send the id of whatever is selected on screen, and re-send it on
+every turn.
 
 ### Location
 
@@ -85,7 +94,7 @@ Events are standard SSE: one `data:` line carrying JSON, then a blank line.
 ```
 data: {"type": "start", "thread_id": "0f1c…"}
 
-data: {"type": "tool_start", "name": "get_balance", "args": {"event_id": 1}, "node": "model"}
+data: {"type": "tool_start", "name": "get_balance", "args": {"only_deficits": true}, "node": "model"}
 
 data: {"type": "tool_end", "name": "get_balance", "result": {"ok": true, "count": 3}}
 
