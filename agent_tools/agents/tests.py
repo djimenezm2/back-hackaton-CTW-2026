@@ -242,18 +242,12 @@ class LLMConfigTests(TestCase):
         self.assertEqual(self._build(model_name="gpt-5.6-sol").model_name, "gpt-5.6-sol")
         self.assertEqual(self._build(model_name="gpt-4o").model_name, "gpt-4o")
 
-    def test_a_reasoning_model_gets_effort_and_no_temperature(self):
+    def test_a_reasoning_model_is_sent_no_temperature(self):
         # Reasoning models reject `temperature` outright — sending it is a 400 every call
-        model = self._build(model_name="gpt-5.6-sol", OPENAI_REASONING_EFFORT="high")
+        self.assertIsNone(self._build(model_name="gpt-5.6-sol").temperature)
 
-        self.assertEqual(model.reasoning_effort, "high")
-        self.assertIsNone(model.temperature)
-
-    def test_a_classic_model_gets_temperature_and_no_effort(self):
-        model = self._build(model_name="gpt-4o")
-
-        self.assertEqual(model.temperature, 0.2)
-        self.assertIsNone(model.reasoning_effort)
+    def test_a_classic_model_still_gets_one(self):
+        self.assertEqual(self._build(model_name="gpt-4o").temperature, 0.2)
 
     def test_the_capability_split_matches_the_model_families(self):
         for name in ("gpt-5.6-sol", "gpt-5.6-luna", "o3-mini"):

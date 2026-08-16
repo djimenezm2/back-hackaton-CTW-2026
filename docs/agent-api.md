@@ -268,15 +268,15 @@ will interleave writes to the same conversation. Disable the input until `done` 
 ```bash
 OPENAI_API_KEY=...                      # without it every agent request is a 503
 OPENAI_MODEL_REASONING=gpt-5.6-sol      # the model both agents run on
-OPENAI_REASONING_EFFORT=medium          # minimal | low | medium | high
 ```
 
 Both agents use the `reasoning` role from the shared model map, the same one the rest of
-the pipeline reads. There is no separate variable for the agent.
+the pipeline reads. There is no separate variable for the agent, so changing
+`OPENAI_MODEL_REASONING` changes what answers you.
 
-`OPENAI_REASONING_EFFORT` is the dial worth knowing about from the frontend: `high` gives
-better answers and noticeably longer waits, `low` the opposite. If turns feel slow, that is
-the first thing to check before blaming the stream.
+That is also the dial worth knowing about from the frontend: a heavier model means better
+answers and noticeably longer turns. If a turn feels slow, check which model is configured
+before blaming the stream.
 
 Postgres must be reachable: conversation state is checkpointed there, and the tables are
 created on first use.

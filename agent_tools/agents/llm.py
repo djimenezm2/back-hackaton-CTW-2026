@@ -47,8 +47,7 @@ def build_chat_model(role: Role = Role.REASONING) -> BaseChatModel:
         role (Role): Which model tier to use. Agents are judgment, so reasoning by default.
 
     Returns:
-        BaseChatModel: Configured from `OPENAI_API_KEY`, `OPENAI_MODELS` and
-            `OPENAI_REASONING_EFFORT`.
+        BaseChatModel: Configured from `OPENAI_API_KEY` and `OPENAI_MODELS`.
 
     Raises:
         LLMNotConfigured: When the key or the role's model name is missing. Both are
@@ -75,7 +74,5 @@ def build_chat_model(role: Role = Role.REASONING) -> BaseChatModel:
     if accepts_temperature(model_name):
         # Low: these agents pick between concrete options, they do not need variety
         options["temperature"] = 0.2
-    else:
-        options["reasoning_effort"] = settings.OPENAI_REASONING_EFFORT
 
     return ChatOpenAI(**options)
