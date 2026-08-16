@@ -42,7 +42,10 @@ class UnitForTests(TestCase):
         make_unit("Pereira", PEREIRA)
         make_unit("Dosquebradas", DOSQUEBRADAS, code="66170")
 
-        self.assertEqual(unit_for(PEREIRA, "CO").name, "Pereira")
+        resolved = unit_for(PEREIRA, "CO")
+
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved.name, "Pereira")
 
     def test_a_point_with_nothing_within_reach_stays_unlinked(self):
         make_unit("Pereira", PEREIRA)
