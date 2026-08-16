@@ -72,6 +72,10 @@ class Location(models.Model):
         Deduplicated on `text_norm` plus administrative unit, so "Coliseo Mayor, Pereira"
         is sent to Google exactly once no matter how many posts mention it. That is both a
         cache and a direct saving on the geocoding bill.
+
+        The constraint treats nulls as equal on purpose: until the gazetteer is loaded every
+        location has no administrative unit, and the default `NULLS DISTINCT` would let the
+        same place be cached once per post.
     """
 
     point = gis.PointField(geography=True)
@@ -92,7 +96,12 @@ class Location(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["text_norm", "admin_unit"], name="location_unique")
+            # NULLS NOT DISTINCT, or the cache duplicates every place with no admin unit yet
+            models.UniqueConstraint(
+                fields=["text_norm", "admin_unit"],
+                name="location_unique",
+                nulls_distinct=False,
+            )
         ]
         indexes = [models.Index(fields=["precision"])]
 
