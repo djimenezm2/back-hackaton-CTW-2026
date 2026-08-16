@@ -133,6 +133,7 @@ class Observation(models.Model):
 
     thread_id = models.CharField(max_length=80, blank=True)  # lets us pull the whole thread
     reply_to_id = models.CharField(max_length=80, blank=True)
+    # True for anything that is not a top-level post; `reply_to_id` says what it hangs under
     is_reply = models.BooleanField(default=False)
 
     hashtags = ArrayField(models.CharField(max_length=80), default=list, blank=True)

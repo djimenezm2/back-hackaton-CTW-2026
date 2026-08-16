@@ -254,7 +254,7 @@ def _normalize_tiktok_comment(item: dict) -> tuple[dict, list[dict]]:
         "author_platform_id": str(item.get("uid", "") or ""),
         "thread_id": video_url.rstrip("/").split("/")[-1] if video_url else "",
         "reply_to_id": str(item.get("repliesToId", "") or ""),
-        "is_reply": bool(item.get("repliesToId")),
+        "is_reply": True,
         "metrics": {"likes": item.get("diggCount", 0)},
         "posted_at": parse_timestamp(item.get("createTimeISO")),
     }
@@ -280,7 +280,7 @@ def _normalize_instagram_comment(item: dict) -> tuple[dict, list[dict]]:
         "author_avatar_url": item.get("ownerProfilePicUrl", "") or "",
         "author_verified": owner.get("is_verified"),
         "thread_id": post_url,
-        "is_reply": False,
+        "is_reply": True,
         "metrics": {"likes": item.get("likesCount", 0) or 0},
         "posted_at": parse_timestamp(item.get("timestamp")),
     }, []
@@ -307,7 +307,7 @@ def _normalize_facebook_comment(item: dict) -> tuple[dict, list[dict]]:
         "author_verified": author.get("is_verified"),
         "thread_id": item.get("facebookUrl", "") or item.get("inputUrl", ""),
         "reply_to_id": str(item.get("replyToCommentId", "") or ""),
-        "is_reply": bool(item.get("replyToCommentId")),
+        "is_reply": True,
         "metrics": {"likes": _as_int(item.get("likesCount"))},
         "posted_at": parse_timestamp(item.get("date")),
     }, []

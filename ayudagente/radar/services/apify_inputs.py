@@ -163,6 +163,40 @@ def build_comment_input(platform: str, permalinks: list[str], limit: int = 100) 
     return builders[Platform(platform)](permalinks, limit)
 
 
+def comment_targets(actor_input: dict) -> set[str]:
+    """
+    Read back the posts a comment job asked for.
+
+    Args:
+        actor_input (dict): What was sent to the Actor.
+
+    Returns:
+        set[str]: Tokens in the same space `comment_target` produces, so the two compare.
+
+    Note:
+        Exists so a caller can ask "have we already pulled this post's replies" without knowing
+        which field name its Actor uses. That question was answered by reading
+        `actor_input__postURLs` directly, which is TikTok's field and null for the other three:
+        their exclusion sets came back empty, the same five posts were requested every round,
+        and one live round re-bought 250 comments it already held for $0.41.
+
+        Field-agnostic on purpose: it reads whichever of the known keys is present rather than
+        switching on the platform. A job stores no platform of its own inside `actor_input`,
+        and a mapping that had to be kept in step with the builders is exactly what failed
+        before. The round trip is asserted per platform in the tests.
+    """
+    found: set[str] = set()
+    for term in actor_input.get("searchTerms") or []:
+        found.add(str(term).removeprefix("conversation_id:"))
+    for url in actor_input.get("directUrls") or []:
+        found.add(str(url))
+    for url in actor_input.get("postURLs") or []:
+        found.add(str(url))
+    for entry in actor_input.get("startUrls") or []:
+        found.add(str(entry.get("url") if isinstance(entry, dict) else entry))
+    return found
+
+
 def _replies_on_x(permalinks: list[str], limit: int) -> dict:
     """
     Replies on X, which are fetched as a search rather than by a comments Actor.

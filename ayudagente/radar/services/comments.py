@@ -34,7 +34,7 @@ Note:
 
 import logging
 
-from django.db.models import ExpressionWrapper, FloatField, IntegerField, QuerySet
+from django.db.models import ExpressionWrapper, FloatField, IntegerField, Q, QuerySet
 from django.db.models.functions import Cast, Coalesce
 
 from ayudagente.radar.choices import (
@@ -45,7 +45,11 @@ from ayudagente.radar.choices import (
     Platform,
 )
 from ayudagente.radar.models import Event, HarvestJob, Observation
-from ayudagente.radar.services.apify_inputs import COMMENT_ACTOR_BY_PLATFORM, build_comment_input
+from ayudagente.radar.services.apify_inputs import (
+    COMMENT_ACTOR_BY_PLATFORM,
+    build_comment_input,
+    comment_targets,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -91,11 +95,19 @@ def worth_reading(event: Event, platform: str) -> QuerySet:
 
         Replies are excluded as sources. Reading the replies of a reply is a thread walk, which
         is `HarvestTarget.THREAD` and a different decision.
+
+        Posts already pulled are excluded through `comment_targets`, which reads whichever
+        field that platform's Actor uses. Reading one field name directly meant three of four
+        platforms never excluded anything and re-bought the same replies every round.
+
+        Matched against both the permalink and the `platform_id`, because X addresses a thread
+        by tweet id while the rest address a post by URL — and a tweet id is exactly what
+        `platform_id` holds. One `Q` covers both spaces without branching on the platform.
     """
     already = HarvestJob.objects.filter(
         event=event, target_kind=HarvestTarget.COMMENTS, platform=platform
-    ).values_list("actor_input__postURLs", flat=True)
-    pulled = {url for batch in already if batch for url in batch}
+    ).values_list("actor_input", flat=True)
+    pulled = {target for actor_input in already for target in comment_targets(actor_input or {})}
 
     replies = Coalesce(Cast("metrics__comments", IntegerField()), 0)
     likes = Coalesce(Cast("metrics__likes", IntegerField()), 0)
@@ -108,7 +120,7 @@ def worth_reading(event: Event, platform: str) -> QuerySet:
             extraction__classification__in=ACTIONABLE,
         )
         .exclude(permalink="")
-        .exclude(permalink__in=pulled)
+        .exclude(Q(permalink__in=pulled) | Q(platform_id__in=pulled))
         .annotate(
             conversation=ExpressionWrapper(
                 replies * 1.0 / (replies + likes + SMOOTHING), output_field=FloatField()

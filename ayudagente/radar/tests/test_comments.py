@@ -17,7 +17,7 @@ from ayudagente.radar.choices import (
     Platform,
 )
 from ayudagente.radar.models import Extraction, HarvestJob
-from ayudagente.radar.services.apify_inputs import build_comment_input
+from ayudagente.radar.services.apify_inputs import build_comment_input, comment_targets
 from ayudagente.radar.services.comments import (
     COMMENT_PLATFORMS,
     POSTS_PER_JOB,
@@ -125,6 +125,51 @@ class QueueTests(CommentsBase):
         queue_comment_pulls(self.event)
 
         self.assertEqual(queue_comment_pulls(self.event), 0)
+
+    def test_every_platform_excludes_what_it_already_pulled(self):
+        """
+        The round trip that pays for itself.
+
+        Note:
+            The exclusion used to read `actor_input__postURLs`, which is TikTok's field name.
+            For the other three it was always null, so nothing was ever excluded and the same
+            five posts were bought every round — $0.41 of Instagram comments already held.
+        """
+        for platform in Platform.values:
+            with self.subTest(platform=platform):
+                event = make_event(name=f"Sismo {platform}")
+                observation = make_observation(
+                    event,
+                    "punto de acopio",
+                    platform=platform,
+                    platform_id=f"{platform}-1",
+                    permalink=f"https://{platform}.example/user/status/{platform}-1",
+                    metrics={"likes": 100, "comments": 20},
+                )
+                Extraction.objects.create(
+                    observation=observation,
+                    model="test",
+                    prompt_version="v9",
+                    classification=ExtractionClass.OFFER,
+                    confidence=0.9,
+                    payload={},
+                )
+
+                self.assertEqual(queue_comment_pulls(event), 1)
+                self.assertEqual(queue_comment_pulls(event), 0)
+
+    def test_what_a_pull_asks_for_is_what_reading_it_back_returns(self):
+        # If these two ever disagree the exclusion silently stops excluding
+        links = ["https://example.com/user/status/12345"]
+
+        for platform in Platform.values:
+            with self.subTest(platform=platform):
+                targets = comment_targets(build_comment_input(platform, links))
+
+                self.assertTrue(
+                    targets & {links[0], "12345"},
+                    f"{platform} input cannot be read back: {targets}",
+                )
 
     def test_a_newly_read_post_earns_its_own_pull(self):
         self._post("1")
