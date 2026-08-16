@@ -76,7 +76,7 @@ test: ## Run the suite (make test LIVE=1 to include tests that need real service
 
 
 
-seed: ## Load the development fixtures (pilot corpus, demo scenario). Never in production
+seed: ## Load the development fixtures (the pilot corpus). Never in production
 	$(MANAGE) seed $(ARGS)
 
 unseed: ## Delete the seed datasets

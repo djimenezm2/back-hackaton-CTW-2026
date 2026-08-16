@@ -293,9 +293,9 @@ GET /api/events/
 ```
 
 ```json
-{"events": [{"id": 1, "name": "Sismo demo Eje Cafetero", "hazard": "earthquake",
-             "occurred_at": "2026-08-15T…", "magnitude": 6.1,
-             "epicenter": {"lat": 4.81, "lon": -75.69}}]}
+{"events": [{"id": 1, "name": "Chocó earthquake M7.4", "hazard": "earthquake",
+             "occurred_at": "2026-08-10T…", "magnitude": 7.4,
+             "epicenter": {"lat": 4.99, "lon": -76.29}}]}
 ```
 
 `GET /api/events/<id>/graph/` returns the whole graph for one event — actors as nodes,

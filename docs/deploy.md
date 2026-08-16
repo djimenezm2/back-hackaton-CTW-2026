@@ -24,8 +24,8 @@ docker compose -f docker-compose.prod.yml exec web python manage.py load_taxonom
 docker compose -f docker-compose.prod.yml exec web python manage.py load_gazetteer CO
 ```
 
-Never run `seed` on a deployment. It loads the pilot corpus and a demo scenario, and its
-`--clear` flag is destructive.
+Never run `seed` on a deployment. It loads the pilot corpus, and its `--clear` flag is
+destructive.
 
 ## The settings that must not stay at their defaults
 

@@ -518,7 +518,7 @@ Coarse to fine, and the order is load-bearing:
 make up          # Postgres and Redis
 make migrate
 uv run manage.py load_taxonomy   # the resource catalog, needed everywhere
-make seed        # development only: loads the demo event, so the graph is not empty
+make seed        # development only: loads the pilot corpus, so the graph is not empty
 make apikey      # mints a key into .env
 make run
 ```

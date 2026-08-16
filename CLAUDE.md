@@ -21,9 +21,9 @@ uv run manage.py start_event ...   # open an emergency by hand and queue its swe
 make check                         # ruff + comment style + pyrefly + pytest
 ```
 
-`make seed` is **development only**: it loads the pilot corpus and the demo scenario. Anything
-a deployment depends on has its own loader, because reference data has no business sharing a
-`--clear` flag with a demo.
+`make seed` is **development only**: it loads the pilot corpus. Anything a deployment depends
+on has its own loader, because reference data has no business sharing a `--clear` flag with a
+development fixture.
 
 `make help` lists everything. The database container publishes **5433**, not 5432, so it does
 not collide with a Postgres installed on the host.
