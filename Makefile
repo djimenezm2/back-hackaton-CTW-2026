@@ -25,7 +25,7 @@ MARKERS = $(if $(LIVE),-m "",)
 
 .DEFAULT_GOAL := help
 .PHONY: help init up down restart ps logs build rebuild \
-        check lint format types test migrate migrations shell run superuser
+        check lint format types test migrate migrations shell run superuser seed unseed
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*##"; printf "Available commands:\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  make %-22s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -68,6 +68,12 @@ types: ## Pyrefly type check
 
 test: ## Run the suite (make test LIVE=1 to include tests that need real services)
 	$(UV) run pytest $(MARKERS) $(ARGS)
+
+seed: ## Load the seed datasets (idempotent). make seed ARGS="--list" to see them
+	$(MANAGE) seed $(ARGS)
+
+unseed: ## Delete the seed datasets
+	$(MANAGE) seed --clear $(ARGS)
 
 migrations: ## Generate migrations
 	$(MANAGE) makemigrations $(ARGS)

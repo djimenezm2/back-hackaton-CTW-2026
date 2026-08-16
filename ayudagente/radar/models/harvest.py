@@ -122,7 +122,8 @@ class Observation(models.Model):
     author_handle = models.CharField(max_length=120, blank=True)
     author_name = models.CharField(max_length=200, blank=True)
     author_platform_id = models.CharField(max_length=80, blank=True)
-    author_avatar_url = models.URLField(max_length=500, blank=True)
+    # Avatar URLs are signed and run long, past what a 500-char column holds
+    author_avatar_url = models.URLField(max_length=1000, blank=True)
     author_followers = models.IntegerField(null=True, blank=True)
     author_verified = models.BooleanField(null=True, blank=True)
     author_bio = models.TextField(blank=True)
