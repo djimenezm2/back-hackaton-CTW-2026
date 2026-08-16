@@ -1,6 +1,7 @@
 """Minimal object builders for service tests. Plain functions, no factory library."""
 
 from django.contrib.gis.geos import Point
+from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
 from ayudagente.radar.choices import (
@@ -18,6 +19,24 @@ PEREIRA = Point(-75.6961, 4.8133, srid=4326)
 DOSQUEBRADAS = Point(-75.6727, 4.8318, srid=4326)
 QUIBDO = Point(-76.6611, 5.6947, srid=4326)
 CALI = Point(-76.5320, 3.4516, srid=4326)
+
+API_KEY = "test-api-key"
+
+
+@override_settings(API_KEYS=[API_KEY])
+class ApiTestCase(TestCase):
+    """
+    Base for endpoint tests: a client that already carries a valid API key.
+
+    Note:
+        The key is injected as a client default rather than passed per call, so a test that
+        forgets it still exercises the endpoint. Whether the middleware refuses without one
+        is its own test, not a condition every other test has to keep restating.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.client = Client(headers={"x-api-key": API_KEY})
 
 
 def make_event(**kwargs) -> Event:

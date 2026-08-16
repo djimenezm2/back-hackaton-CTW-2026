@@ -169,11 +169,13 @@ Apify is marked `live` and excluded, so `make test LIVE=1` is the opt-in.
 ## Status
 
 **Built:** data model (15 models, migrated), the deterministic service layer
-(`services/matching.py`, `outreach.py`, `requirements.py`, `routing.py`), event endpoints,
-tooling, docker stack.
+(`services/matching.py`, `outreach.py`, `requirements.py`, `routing.py`), the extraction →
+geocoding → identity → ingest pipeline and its Celery tasks, both agents, the HTTP API behind
+an API key ([`docs/api.md`](docs/api.md)), tooling, docker stack.
 
-**Not built yet:** admin registrations, Celery wiring, the harvest/extraction/geocoding tasks,
-the GeoNames loader, the frontier agent. Each is its own slice.
+**Not built yet:** `services/harvest.py` — the Apify client that feeds the pipeline something
+other than the seeded pilot corpus. Then admin registrations, the GeoNames loader, and the
+watch stage that detects an event in the first place. Each is its own slice.
 
 **Known gap to respect when building extraction:** `Requirement.evidence` is many-to-many to
 `Observation` because one post can legitimately produce several requirements. A post listing

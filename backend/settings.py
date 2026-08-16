@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+from corsheaders.defaults import default_headers
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -30,6 +31,8 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    # Above the session and auth middleware: a rejected client never costs a session lookup
+    "ayudagente.radar.middleware.ApiKeyMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -94,6 +97,11 @@ CORS_ALLOW_ALL_ORIGINS = DEBUG
 CORS_ALLOWED_ORIGINS = [
     origin for origin in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",") if origin
 ]
+CORS_ALLOW_HEADERS = (*default_headers, "x-api-key")  # or the preflight drops the key header
+
+# The API authenticates the client, not a user: one shared key per consumer
+API_KEYS = [key.strip() for key in os.environ.get("API_KEYS", "").split(",") if key.strip()]
+API_KEY_PROTECTED_PREFIXES = ["/api/"]
 
 # Some hosts carry a second GDAL build (e.g. /usr/gdal312) that ctypes picks up but that
 # is linked against an incompatible GEOS. These let each dev pin the working libraries.

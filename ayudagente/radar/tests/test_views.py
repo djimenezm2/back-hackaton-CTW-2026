@@ -2,7 +2,6 @@
 
 from decimal import Decimal
 
-from django.test import TestCase
 from django.urls import reverse
 
 from ayudagente.radar.choices import ActorKind, Direction, MatchStatus, RequirementStatus
@@ -10,6 +9,7 @@ from ayudagente.radar.services import propose_match, run_matching_pass
 from ayudagente.radar.tests.factories import (
     DOSQUEBRADAS,
     PEREIRA,
+    ApiTestCase,
     make_actor,
     make_event,
     make_location,
@@ -18,7 +18,7 @@ from ayudagente.radar.tests.factories import (
 )
 
 
-class EventListTests(TestCase):
+class EventListTests(ApiTestCase):
     def test_lists_active_events_only(self):
         make_event(name="Sismo activo")
         make_event(name="Viejo", status="archived")
@@ -31,8 +31,9 @@ class EventListTests(TestCase):
         self.assertEqual(events[0]["epicenter"], {"lat": PEREIRA.y, "lon": PEREIRA.x})
 
 
-class EventGraphTests(TestCase):
+class EventGraphTests(ApiTestCase):
     def setUp(self):
+        super().setUp()
         self.event = make_event()
         self.agua = make_resource("agua")
 

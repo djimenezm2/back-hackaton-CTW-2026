@@ -45,8 +45,9 @@ Content-Type: application/json
 | `message` | yes | Spanish. Up to 2000 characters. |
 | `thread_id` | no | Omit to start a conversation; the server returns one to reuse. |
 
-No authentication yet. CSRF is exempt on these endpoints, and CORS is open while `DEBUG` is
-on — set `CORS_ALLOWED_ORIGINS` before deploying anywhere real.
+Both endpoints need the API key, like everything under `/api/`. Send it in `X-API-Key` or as
+`Authorization: Bearer <key>` — see [`api.md`](api.md) for the scheme and the CORS settings.
+CSRF is exempt here, because the key already establishes who is calling.
 
 ### Conversations
 
@@ -123,7 +124,7 @@ the ids the agent surfaces in its answer.
 async function askAgent({ agent, eventId, message, threadId, onEvent, signal }) {
   const response = await fetch(`/api/agent/${agent}/`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
     body: JSON.stringify({ event_id: eventId, message, thread_id: threadId }),
     signal,
   });
@@ -170,6 +171,7 @@ sent, nothing to clean up.
 | 400 | `{"error": "message is required"}` | Missing, empty or oversized message |
 | 400 | `{"error": "event_id does not exist"}` | Bad `event_id` |
 | 400 | `{"error": "body must be JSON"}` | Malformed body |
+| 401 / 403 | `{"error": "…"}` | Missing or unknown API key |
 | 404 | Django's own page, not JSON | Wrong path — only the two above exist |
 | 405 | — | Not a POST |
 | 503 | `{"error": "agent is not configured: …"}` | `OPENAI_API_KEY` is not set on the server |

@@ -13,7 +13,7 @@ import json
 from unittest.mock import patch
 
 from django.conf import settings
-from django.test import Client, TestCase
+from django.test import TestCase
 from django.urls import reverse
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 from langchain_openai import ChatOpenAI
@@ -25,7 +25,7 @@ from agent_tools.agents.checkpointer import build_connection_string
 from agent_tools.agents.llm import LLMNotConfigured, accepts_temperature, build_chat_model
 from agent_tools.agents.streaming import stream_agent, summarize_tool_result
 from agent_tools.registry import TOOLSETS
-from ayudagente.radar.tests.factories import make_event
+from ayudagente.radar.tests.factories import ApiTestCase, make_event
 
 
 class PromptTests(TestCase):
@@ -277,11 +277,11 @@ class LLMConfigTests(TestCase):
             self.assertTrue(accepts_temperature(name), name)
 
 
-class AgentEndpointTests(TestCase):
+class AgentEndpointTests(ApiTestCase):
     """Everything the endpoint must settle before a single byte is streamed."""
 
     def setUp(self):
-        self.client = Client()
+        super().setUp()
         self.event = make_event()
         self.url = reverse("radar:agent-coordination")
 
