@@ -15,6 +15,7 @@ from ayudagente.radar.models.actors import (
 from ayudagente.radar.models.catalog import AdminUnit, ResourceType
 from ayudagente.radar.models.events import Event
 from ayudagente.radar.models.frontier import FrontierNode
+from ayudagente.radar.models.graph import GraphSnapshot
 from ayudagente.radar.models.harvest import (
     Extraction,
     HarvestJob,
@@ -32,6 +33,7 @@ __all__ = [
     "Event",
     "Extraction",
     "FrontierNode",
+    "GraphSnapshot",
     "HarvestJob",
     "Location",
     "Match",

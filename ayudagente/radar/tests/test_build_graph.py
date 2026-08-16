@@ -49,6 +49,7 @@ class BuildGraphCommandTests(TestCase):
 
         self.assertEqual(Match.objects.filter(need__event=self.event).count(), 1)
         self.assertIn("1 matches proposed", out.getvalue())
+        self.assertIn("rebuilt", out.getvalue())
 
     def test_event_flag_restricts_the_pass(self):
         self._pair()

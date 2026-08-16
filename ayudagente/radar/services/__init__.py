@@ -16,6 +16,11 @@ from ayudagente.radar.services.frontier import (
     create_harvest_job,
     get_frontier,
 )
+from ayudagente.radar.services.graph import (
+    build_graph_payload,
+    input_fingerprint,
+    refresh_graph,
+)
 from ayudagente.radar.services.matching import (
     is_matchable_location,
     propose_match,
@@ -36,6 +41,7 @@ from ayudagente.radar.services.routing import RoutingError, plan_trip_stops, roa
 __all__ = [
     "RoutingError",
     "best_contact_point",
+    "build_graph_payload",
     "build_search_query",
     "create_harvest_job",
     "draft_outreach",
@@ -45,10 +51,12 @@ __all__ = [
     "get_balance",
     "get_contact_points",
     "get_frontier",
+    "input_fingerprint",
     "is_matchable_location",
     "match_participants",
     "plan_trip_stops",
     "propose_match",
+    "refresh_graph",
     "resolve_resource",
     "resource_catalog",
     "resource_family",

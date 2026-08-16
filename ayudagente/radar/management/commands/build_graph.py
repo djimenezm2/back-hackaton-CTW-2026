@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from ayudagente.radar.choices import EventStatus
 from ayudagente.radar.models import Event
-from ayudagente.radar.services import run_matching_pass
+from ayudagente.radar.services import refresh_graph
 
 
 class Command(BaseCommand):
@@ -40,15 +40,12 @@ class Command(BaseCommand):
                 raise CommandError("no active events")
 
         for event in events:
-            result = run_matching_pass(event.id)
+            snapshot, rebuilt = refresh_graph(event.id)
+            verb = "rebuilt" if rebuilt else "already current (inputs unchanged)"
             self.stdout.write(
-                f"{event.name} (#{event.id}): "
-                f"{len(result['proposed'])} matches proposed, "
-                f"{len(result['unreachable_need_ids'])} needs with no reachable supply"
+                f"{event.name} (#{event.id}): {verb} — "
+                f"{len(snapshot.payload['nodes'])} nodes, "
+                f"{len(snapshot.payload['edges'])} matches proposed"
             )
-            if result["unreachable_need_ids"]:
-                self.stdout.write(
-                    f"  unreachable requirement ids: {result['unreachable_need_ids']}"
-                )
 
-        self.stdout.write(self.style.SUCCESS("Graph rebuilt."))
+        self.stdout.write(self.style.SUCCESS("Graph snapshots current."))

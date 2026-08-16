@@ -182,3 +182,19 @@ def extraction_cost_estimate(event_id: int, count: int) -> tuple[int, int]:
         round(totals["input"] / sample * count),
         round(totals["output"] / sample * count),
     )
+
+
+@shared_task
+def rebuild_graph(event_id: int) -> dict:
+    """
+    Bring the event's stored graph up to date.
+
+    Safe to over-fire: when the input fingerprint matches the stored snapshot the call
+    costs a hash comparison and does no matching work. Signals queue this on every write
+    to actors, requirements or matches, so the stored graph is already current by the
+    time anyone fetches it.
+    """
+    from ayudagente.radar.services.graph import refresh_graph
+
+    _snapshot, rebuilt = refresh_graph(event_id)
+    return {"event": event_id, "rebuilt": rebuilt}

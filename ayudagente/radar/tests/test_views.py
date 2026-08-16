@@ -5,7 +5,7 @@ from decimal import Decimal
 from django.urls import reverse
 
 from ayudagente.radar.choices import ActorKind, Direction, MatchStatus, RequirementStatus
-from ayudagente.radar.services import propose_match, run_matching_pass
+from ayudagente.radar.services import propose_match, refresh_graph, run_matching_pass
 from ayudagente.radar.tests.factories import (
     DOSQUEBRADAS,
     PEREIRA,
@@ -137,6 +137,7 @@ class EventGraphTests(ApiTestCase):
                 quantity=Decimal(10),
             )
         run_matching_pass(self.event.id)
+        refresh_graph(self.event.id)  # persist the snapshot the view will serve
 
-        with self.assertNumQueries(4):  # event, actors, prefetch reqs, matches
+        with self.assertNumQueries(2):  # event + snapshot row; size-independent
             self.client.get(reverse("radar:event-graph", args=[self.event.id]))
