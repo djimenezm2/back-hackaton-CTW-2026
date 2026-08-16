@@ -22,6 +22,7 @@ from ayudagente.radar.choices import (
     UnreachableReason,
     precisions_at_least,
 )
+from ayudagente.radar.models.catalog import AdminUnit
 
 # Actor kinds that count as organizations. Query with `kind__in=ORGANIZATION_KINDS`.
 ORGANIZATION_KINDS = frozenset(
@@ -73,6 +74,10 @@ class Location(models.Model):
         Deduplicated on `text_norm` plus administrative unit, so "Coliseo Mayor, Pereira"
         is sent to Google exactly once no matter how many posts mention it. That is both a
         cache and a direct saving on the geocoding bill.
+
+        The constraint treats nulls as equal on purpose: until the gazetteer is loaded every
+        location has no administrative unit, and the default `NULLS DISTINCT` would let the
+        same place be cached once per post.
     """
 
     point = gis.PointField(geography=True)
@@ -80,7 +85,7 @@ class Location(models.Model):
     raw_text = models.CharField(max_length=300)
     text_norm = models.CharField(max_length=300, db_index=True)
     admin_unit = models.ForeignKey(
-        "radar.AdminUnit",
+        AdminUnit,
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -93,7 +98,12 @@ class Location(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["text_norm", "admin_unit"], name="location_unique")
+            # NULLS NOT DISTINCT, or the cache duplicates every place with no admin unit yet
+            models.UniqueConstraint(
+                fields=["text_norm", "admin_unit"],
+                name="location_unique",
+                nulls_distinct=False,
+            )
         ]
         indexes = [models.Index(fields=["precision"])]
 

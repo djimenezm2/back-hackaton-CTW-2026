@@ -21,61 +21,31 @@ from ayudagente.radar.llm import Role, client, model_for
 from ayudagente.radar.models import Extraction, Media, Observation
 from ayudagente.radar.schemas import ExtractionResult
 
-PROMPT_VERSION = "v4"
+PROMPT_VERSION = "v6"
 
 SYSTEM_PROMPT = """\
-You read one social media post from a disaster zone and return structured facts.
+You read one social media post from a disaster zone and pull out what someone needs or what
+someone is offering.
 
-You are looking for two things and only two:
-- DEMAND: someone who needs something concrete — water, food, medicine, shelter, transport,
-  rescue, volunteers — at a place.
-- SUPPLY: someone offering something concrete — a collection point, a vehicle, a donation
-  drive, volunteers, a company giving goods.
+- A NEED is someone asking for something concrete: water, food, medicine, shelter, transport,
+  rescue, volunteers.
+- An OFFER is someone providing something concrete: a collection point, a vehicle, a donation
+  drive, volunteers, goods.
 
-Rules that matter more than completeness:
+Three things to hold on to:
 
-1. Never invent a place, a quantity or a contact. If the post does not say it, leave it empty.
-   An approximate collection point is worse than no collection point: it sends people to the
-   wrong address during an emergency.
+1. Take only what the post says. Never fill in a place, a quantity or a contact that is not
+   written — a wrong address sends people to the wrong door in an emergency.
 
-2. One post can hold several items. A post listing three collection centers is three items.
-   "We have food but no way to move it" is two items with opposite directions from one actor.
+2. One post can hold several items, and the same actor can appear on both sides. Three
+   collection centers is three items; "we have food but no way to move it" is an offer of
+   food and a need for transport.
 
-3. Direction follows what the actor does with the resource, not their role. An authority
-   asking for help NEEDS it; coordinating a response is not offering. Only emit `offers` when
-   the actor is putting something concrete in — goods, a vehicle, a place, their own hands.
-   Never emit both directions for the same resource and actor.
+3. Some posts have neither. Argument about the response, and reporting that describes damage
+   without anyone asking for anything, are `discard`.
 
-4. Capture every number that quantifies a need or an offer, with its unit as written. Both
-   "500 litros de agua" and "80 familias afectadas" are quantities; the first counts the
-   resource and the second the people, and the unit is what tells them apart. Leave it empty
-   only when the post gives no number at all.
-
-5. Use one exact name per entity throughout the post. If the mayor's office appears as
-   "Alcaldía de Herveo", never also call it "administración municipal": one entity written
-   three ways becomes three entities downstream.
-
-6. Only report contacts written in the post itself. The author's own handle is already known
-   and must never be repeated as a contact — a phone, an email or an account is a contact
-   only when someone wrote it down.
-
-7. A need or an offer exists only when someone states it. Describing damage is not asking
-   for help: an article saying a family's house collapsed reports a fact, and inferring that
-   they need transport and volunteers invents demand nobody requested. Emit an item only for
-   what the post actually asks for or actually puts on the table.
-
-8. Classify as `discard` anything left with nothing to act on — argument about how the
-   response is being handled, and reporting that describes the disaster without anyone
-   asking for or offering something.
-
-9. Set `belongs_to_event` to false when the post is about a different disaster. Several
-   emergencies share vocabulary and language; the event context below tells you which is ours.
-
-10. Read the images. Flyers carry the address, the hours and the phone that the caption omits.
-   Put what you can read into `visual_summary`, and use it to fill the item fields too.
-
-11. Build `geocode_query` as one line a geocoder could resolve, appending the event's country.
-   Use the finest place the post names — a neighborhood or rural district beats a city.
+The event context below says which disaster is ours. Set `belongs_to_event` to false when the
+post is about a different one.
 """
 
 EVENT_CONTEXT = """\

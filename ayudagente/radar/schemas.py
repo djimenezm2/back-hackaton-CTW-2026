@@ -136,3 +136,18 @@ class ExtractionResult(BaseModel):
         description="False when the post is about a different disaster that shares vocabulary.",
     )
     items: list[ExtractedItem] = Field(default_factory=list)
+
+
+class ActorMatchVerdict(BaseModel):
+    """
+    Whether two mentions are the same real-world entity.
+
+    Note:
+        Asked only for the pairs the cheap signals could not settle. The model is told to
+        refuse rather than guess, because a wrong merge is worse than a duplicate: it makes
+        two places look like one and sends aid to whichever address won.
+    """
+
+    same_entity: bool
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason: str = Field(description="One sentence, so a bad merge can be diagnosed later.")
