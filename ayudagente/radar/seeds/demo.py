@@ -127,19 +127,6 @@ ADMIN_UNITS = [
     ("41001", "Neiva", "admin_2", "41", "neiva", 366634),
 ]
 
-RESOURCES = [
-    ("agua", "Agua", None, "litros", False),
-    ("alimentos", "Alimentos", None, "kg", False),
-    ("alimentos_mascotas", "Alimento para mascotas", "alimentos", "kg", False),
-    ("alimentos_perecederos", "Alimentos perecederos", "alimentos", "kg", True),
-    ("medicamentos", "Medicamentos", None, "kits", False),
-    ("refugio", "Refugio", None, "unidades", False),
-    ("carpas", "Carpas", "refugio", "unidades", False),
-    ("colchonetas", "Colchonetas", "refugio", "unidades", False),
-    ("transporte", "Transporte", None, "vehículos", False),
-    ("voluntarios", "Voluntarios", None, "personas", False),
-    ("plantas_electricas", "Plantas eléctricas", None, "unidades", False),
-]
 
 ACTORS = [
     # (slug, name, kind, point_key, admin_code, credibility)
@@ -208,7 +195,7 @@ REQUIREMENTS = [
         "req_agua_quibdo",
         "coliseo_quibdo",
         "needs",
-        "agua",
+        "water",
         5000,
         0,
         "litros",
@@ -223,7 +210,7 @@ REQUIREMENTS = [
         "req_meds_hospital",
         "hospital_sj",
         "needs",
-        "medicamentos",
+        "medicine",
         200,
         0,
         "kits",
@@ -238,7 +225,7 @@ REQUIREMENTS = [
         "req_carpas_vereda",
         "vereda_florida",
         "needs",
-        "carpas",
+        "tents",
         50,
         0,
         "unidades",
@@ -253,7 +240,7 @@ REQUIREMENTS = [
         "req_alimentos_cuba",
         "jac_cuba",
         "needs",
-        "alimentos",
+        "food",
         300,
         0,
         "kg",
@@ -268,7 +255,7 @@ REQUIREMENTS = [
         "req_voluntarios_cuba",
         "jac_cuba",
         "needs",
-        "voluntarios",
+        "volunteers",
         20,
         18,
         "personas",
@@ -283,7 +270,7 @@ REQUIREMENTS = [
         "req_colchonetas_coliseo",
         "coliseo_quibdo",
         "needs",
-        "colchonetas",
+        "bedding",
         30,
         30,
         "unidades",
@@ -298,7 +285,7 @@ REQUIREMENTS = [
         "req_plantas_quibdo",
         "coliseo_quibdo",
         "needs",
-        "plantas_electricas",
+        "generators",
         2,
         0,
         "unidades",
@@ -313,7 +300,7 @@ REQUIREMENTS = [
         "off_agua_cali",
         "bodega_cali",
         "offers",
-        "agua",
+        "water",
         12000,
         0,
         "litros",
@@ -328,7 +315,7 @@ REQUIREMENTS = [
         "off_alimentos_utp",
         "acopio_utp",
         "offers",
-        "alimentos",
+        "food",
         800,
         0,
         "kg",
@@ -343,7 +330,7 @@ REQUIREMENTS = [
         "off_mascotas_dq",
         "dono_mascotas",
         "offers",
-        "alimentos_mascotas",
+        "pet_food",
         50,
         0,
         "kg",
@@ -358,7 +345,7 @@ REQUIREMENTS = [
         "off_cobijas_cr",
         "cruz_roja",
         "offers",
-        "colchonetas",
+        "bedding",
         200,
         0,
         "unidades",
@@ -373,7 +360,7 @@ REQUIREMENTS = [
         "off_voluntarios_mzl",
         "vol_manizales",
         "offers",
-        "voluntarios",
+        "volunteers",
         15,
         0,
         "personas",
@@ -388,7 +375,7 @@ REQUIREMENTS = [
         "off_transcafe",
         "transcafe",
         "offers",
-        "transporte",
+        "transport",
         3,
         0,
         "vehículos",
@@ -403,7 +390,7 @@ REQUIREMENTS = [
         "off_andres",
         "andres",
         "offers",
-        "transporte",
+        "transport",
         1,
         0,
         "vehículos",
@@ -773,14 +760,14 @@ ZONES = {
 # plantas_electricas stays out on purpose: the curated "no reachable supply" scenario
 # depends on nobody offering it
 BULK_RESOURCES = [
-    ("agua", 400),
-    ("alimentos", 150),
-    ("medicamentos", 40),
-    ("carpas", 15),
-    ("colchonetas", 60),
-    ("voluntarios", 10),
-    ("alimentos_mascotas", 25),
-    ("refugio", 20),
+    ("water", 400),
+    ("food", 150),
+    ("medicine", 40),
+    ("tents", 15),
+    ("bedding", 60),
+    ("volunteers", 10),
+    ("pet_food", 25),
+    ("shelter", 20),
 ]
 BULK_KINDS = ["community", "person", "church", "school", "person"]
 BULK_URGENCIES = ["critical", "high", "medium", "high", "medium", "low"]
@@ -839,17 +826,8 @@ def load(write: Writer) -> Counts:
             },
         )
 
-    resources = {}
-    for key, name, parent_key, unit, perishable in RESOURCES:
-        resources[key], _ = ResourceType.objects.get_or_create(
-            key=key,
-            defaults={
-                "name": name,
-                "parent": resources.get(parent_key),
-                "default_unit": unit,
-                "perishable": perishable,
-            },
-        )
+    # The taxonomy is a shared catalog, loaded by its own seed rather than invented here
+    resources = {resource.key: resource for resource in ResourceType.objects.all()}
 
     event = Event.objects.create(
         hazard="earthquake",
@@ -988,7 +966,7 @@ def load(write: Writer) -> Counts:
             resource_key,
             qty,
             covered,
-            unit,
+            _unit,  # the taxonomy owns the unit now
             urgency,
             point_key,
             admin_code,
@@ -1099,18 +1077,16 @@ def clear(write: Writer) -> int:
 
     Note:
         The admin units carry real DIVIPOLA codes, so they have to go or a proper gazetteer
-        load would collide with them on the (country, level, code) constraint.
+        load would collide with them on the (country, level, code) constraint. The resource
+        taxonomy is not touched: it is a shared catalog with its own seed.
     """
-    deleted, _ = Event.objects.filter(name=DEMO_EVENT_NAME).delete()
     # Cascades take actors, requirements, matches, observations, jobs and frontier
-    Event.objects.filter(name=DEMO_EVENT_NAME).delete()
+    deleted, _ = Event.objects.filter(name=DEMO_EVENT_NAME).delete()
     Location.objects.filter(
         source="manual",
         admin_unit__country_code="CO",
         admin_unit__code__in=[c for c, *_ in ADMIN_UNITS],
     ).delete()
-    for key, *_ in reversed(RESOURCES):  # children before parents (PROTECT)
-        ResourceType.objects.filter(key=key).delete()
     for code, *_ in reversed(ADMIN_UNITS):
         AdminUnit.objects.filter(country_code="CO", code=code).delete()
     write("  removed the demo catalog rows as well")

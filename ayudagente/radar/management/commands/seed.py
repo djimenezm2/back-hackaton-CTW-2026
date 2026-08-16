@@ -59,7 +59,8 @@ class Command(BaseCommand):
                 self.stdout.write(f"  {seed.name:<10} {seed.description}")
             return
 
-        selected = [SEEDS[name] for name in (options["only"] or sorted(SEEDS))]
+        # Registry order, not alphabetical: a catalog has to load before what references it
+        selected = [SEEDS[name] for name in (options["only"] or SEEDS)]
         if not selected:
             raise CommandError("no datasets are registered")
 
