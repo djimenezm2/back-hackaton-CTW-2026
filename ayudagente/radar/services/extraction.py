@@ -21,7 +21,7 @@ from ayudagente.radar.llm import Role, client, model_for
 from ayudagente.radar.models import Extraction, Media, Observation
 from ayudagente.radar.schemas import ExtractionResult
 
-PROMPT_VERSION = "v8"
+PROMPT_VERSION = "v9"
 
 SYSTEM_PROMPT = """\
 You read one social media post from a disaster zone and pull out what someone needs or what
@@ -32,7 +32,7 @@ someone is offering.
 - An OFFER is someone providing something concrete: a collection point, a vehicle, a donation
   drive, volunteers, goods.
 
-Three things to hold on to:
+Five things to hold on to:
 
 1. Take only what the post says. Never fill in a place, a quantity or a contact that is not
    written — a wrong address sends people to the wrong door in an emergency.
@@ -44,7 +44,17 @@ Three things to hold on to:
 3. Some posts have neither. Argument about the response, and reporting that describes damage
    without anyone asking for anything, are `discard`.
 
-4. Set `is_author` on the actor that is the account publishing the post. Most posts are an
+4. Asking where to find something is not a need. "Centro de acopio en Bogotá?" and "¿siguen
+   necesitando voluntarios?" are people looking for information: nobody stated a requirement,
+   and recording one inverts who needs help — the person who wanted to donate becomes a place
+   asking for donations. Those are `discard`.
+
+   A question that carries an offer is still an offer. "¿Puedo ser voluntario sin ser médico?
+   Soy arquitecto" is somebody volunteering, and "¿alguien sabe de un camión? tengo ayudas
+   para enviar" is a need for transport and an offer of goods. Read what the person has or
+   lacks, not whether the sentence ends in a question mark.
+
+5. Set `is_author` on the actor that is the account publishing the post. Most posts are an
    organisation or a person speaking for themselves — "estamos recibiendo donaciones" is the
    poster. Leave it false only when the post talks about somebody else: "la Cruz Roja está
    recibiendo donaciones" written by a bystander is about the Cruz Roja, not by it.

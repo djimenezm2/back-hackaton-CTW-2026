@@ -297,9 +297,20 @@ harvest → normalize → extract → geocode → identity → ingest pipeline a
 both agents, the HTTP API behind an API key ([`docs/api.md`](docs/api.md)), tooling, docker
 stack.
 
-**Not built yet:** promotion of proven accounts to frontier nodes, automatic `exhausted`,
-media download, the `unverified` quarantine, one write endpoint to mark an outreach dispatched,
-and the watch stage that detects an event in the first place. Each is its own slice.
+**Not built yet:** the watch stage that detects an event in the first place. Everything else
+that used to be on this list is in — promotion and automatic `exhausted` in
+`services/promotion.py`, media download, the dispatch write endpoint. The `unverified`
+quarantine was dropped rather than built: it is a label, for the reasons above.
+
+**Promotion is built and starved.** `promote_accounts` requires an `Actor` behind the posting
+handle, and that link is only written when the model reads the account as the author. Against a
+live corpus that found fifteen accounts worth following and promoted none. The gate is right —
+inventing an `Actor` would put a press aggregator on the map as a place to drive to — so what
+has to improve is the authorship reading, not the gate.
+
+**296 posts were read before their photos were on disk** and went through as text only. The
+files exist now; re-reading those observations is the one action that would recover what the
+model never saw. The ordering that caused it is fixed in `process_observation`.
 
 **The harvest loop is closed and that is load-bearing.** `services/harvest.py` runs a job and
 writes back through `record_harvest`; `tasks.process_observation` credits the target through

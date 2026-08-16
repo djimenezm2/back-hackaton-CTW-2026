@@ -78,7 +78,7 @@ def process_observation(self, observation_id: int, *, force: bool = False) -> di
         Images are fetched first, and the order is load-bearing. The extractor inlines our own
         stored copies, so a post read before its photo reached disk goes through as text only
         — and the platform URL it would have come from expires within hours, so there is no
-        second chance. A live run lost the images of 321 posts of 590 that way.
+        second chance. A live run lost the images of 296 posts of 574 that way.
     """
     observation = Observation.objects.select_related("event").get(pk=observation_id)
 
