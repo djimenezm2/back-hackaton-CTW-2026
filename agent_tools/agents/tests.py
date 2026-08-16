@@ -27,6 +27,9 @@ from agent_tools.agents.streaming import stream_agent, summarize_tool_result
 from agent_tools.registry import TOOLSETS
 from ayudagente.radar.tests.factories import ApiTestCase, make_event
 
+# Tools that existed and no longer do. A prompt still naming one is a dead end for the model.
+RETIRED_TOOLS = ("find_requirements", "plan_trip_stops")
+
 
 class PromptTests(TestCase):
     """Prompts carry behaviour. Everything they promise has to be true of the tools."""
@@ -54,17 +57,34 @@ class PromptTests(TestCase):
     def test_the_coordination_prompt_states_the_rules_the_tools_cannot_enforce(self):
         prompt = render_prompt("coordination", self.event).lower()
 
-        self.assertIn("get_balance", prompt)  # orientation call comes first
+        self.assertIn("match_resource", prompt)  # the tool most questions start from
         self.assertIn("do not translate", prompt)  # the catalog is Spanish
-        self.assertIn("saturated", prompt)  # an absent row is not an absent need
+        self.assertIn("still_needed", prompt)  # already subtracts what others promised
+        self.assertIn("reachable_by_us", prompt)  # a match nobody can be told about
         self.assertIn("road_distance", prompt)  # straight-line distance is a floor
+
+    def test_a_prompt_never_points_at_a_tool_that_was_removed(self):
+        # The failure this catches is silent: the model calls a name that no longer
+        # resolves, gets an error it cannot fix, and the turn dies for no visible reason.
+        for toolset in TOOLSETS:
+            prompt = render_prompt(toolset, self.event)
+            for retired in RETIRED_TOOLS:
+                with self.subTest(prompt=toolset, retired=retired):
+                    self.assertNotIn(retired, prompt)
+
+    def test_each_prompt_names_the_tools_its_agent_actually_holds(self):
+        for toolset, tools in TOOLSETS.items():
+            prompt = render_prompt(toolset, self.event)
+            named = [tool.name for tool in tools if tool.name in prompt]
+            with self.subTest(prompt=toolset):
+                self.assertTrue(named, "a prompt that names none of its tools teaches nothing")
 
     def test_the_frontier_prompt_defends_forced_exploration(self):
         prompt = render_prompt("frontier", self.event).lower()
 
         self.assertIn("is_unexplored", prompt)
         self.assertIn("rationale", prompt)
-        self.assertNotIn("find_requirements", prompt)  # not in its world at all
+        self.assertNotIn("match_resource", prompt)  # not in its world at all
 
 
 class TranslateChunkTests(TestCase):

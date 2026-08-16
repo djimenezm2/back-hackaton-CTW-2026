@@ -12,11 +12,10 @@ from django.test import TestCase
 
 from agent_tools.create_harvest_job import create_harvest_job
 from agent_tools.draft_outreach import draft_outreach
-from agent_tools.find_requirements import find_requirements
 from agent_tools.get_actor_contacts import get_actor_contacts
 from agent_tools.get_balance import get_balance
 from agent_tools.get_frontier import get_frontier
-from agent_tools.plan_trip_stops import plan_trip_stops
+from agent_tools.match_resource import match_resource
 from agent_tools.propose_match import propose_match
 from agent_tools.registry import ALL_TOOLS, COORDINATION_TOOLS, FRONTIER_TOOLS, get_toolset
 from agent_tools.road_distance import road_distance
@@ -86,7 +85,7 @@ class FailuresAreValuesTests(TestCase):
 
     def test_reads_report_a_missing_event(self):
         cases = [
-            (find_requirements, {"event_id": 99999, "direction": "needs"}),
+            (match_resource, {"event_id": 99999, "offering": True}),
             (get_balance, {"event_id": 99999}),
             (get_frontier, {"event_id": 99999}),
         ]
@@ -100,7 +99,6 @@ class FailuresAreValuesTests(TestCase):
             (draft_outreach, {"contact_point_id": 1, "purpose": "answer", "body": "y" * 60}),
             (create_harvest_job, {"event_id": 1, "node_id": 1, "rationale": "z" * 30}),
             (road_distance, {"from_requirement_id": 1, "to_requirement_id": 2}),
-            (plan_trip_stops, {"requirement_ids": [1, 2]}),
         ]
         for tool, args in cases:
             with self.subTest(tool=tool.name):
@@ -109,7 +107,7 @@ class FailuresAreValuesTests(TestCase):
     def test_a_read_that_fails_still_returns_its_empty_list(self):
         # A caller reading the list without checking `error` must see nothing, not crash
         self.assertEqual(
-            find_requirements.invoke({"event_id": 99999, "direction": "needs"})["requirements"],
+            match_resource.invoke({"event_id": 99999, "offering": True})["candidates"],
             [],
         )
         self.assertEqual(get_balance.invoke({"event_id": 99999})["balance"], [])
@@ -145,7 +143,7 @@ class BalanceToolTests(TestCase):
         row = get_balance.invoke({"event_id": self.event.id})["balance"][0]
 
         self.assertEqual(row["net"], -200.0)
-        self.assertEqual(row["resource_key"], "agua")  # chains into find_requirements
+        self.assertEqual(row["resource_key"], "agua")  # chains into match_resource
 
     def test_unstated_quantities_are_counted_not_summed_as_zero(self):
         self._req(Direction.NEEDS, None)
@@ -170,7 +168,7 @@ class BalanceToolTests(TestCase):
         saturated.save()
 
         balance = get_balance.invoke({"event_id": self.event.id})
-        detail = find_requirements.invoke({"event_id": self.event.id, "direction": "needs"})
+        detail = match_resource.invoke({"event_id": self.event.id, "offering": True})
 
         self.assertEqual(balance["balance"], [])
         self.assertEqual(detail["count"], 0)

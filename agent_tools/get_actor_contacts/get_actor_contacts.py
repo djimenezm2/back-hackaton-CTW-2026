@@ -22,7 +22,7 @@ class GetActorContactsInput(BaseModel):
     """Arguments for `get_actor_contacts`."""
 
     actor_id: int = Field(
-        description="Actor to look up, as returned in `actor_id` by find_requirements."
+        description="Actor to look up, as returned in `actor_id` by match_resource."
     )
     include_unusable: bool = Field(
         default=False,

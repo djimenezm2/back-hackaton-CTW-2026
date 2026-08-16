@@ -3,7 +3,7 @@
 
 This is the orientation call. It answers "what is happening here" one level above the
 individual rows, and its output is the vocabulary for the next call: every row carries the
-`resource_key` that `find_requirements` accepts, so the two chain without the model having
+`resource_key` that `match_resource` accepts, so the two chain without the model having
 to invent a slug.
 """
 
@@ -56,7 +56,7 @@ def get_balance(
 
     Each row compares what is needed with what is offered for one resource in one place and
     one unit. A negative `net` is a deficit, the gap somebody has to close. Use this before
-    `find_requirements` to see which resources are actually in play and to get the exact
+    `match_resource` to see which resources are actually in play and to get the exact
     `resource_key` values that tool accepts.
 
     Quantities in different units are never added together, so the same resource can appear
@@ -66,7 +66,7 @@ def get_balance(
     not the same as covered.
 
     Rows exclude requirements that are saturated, expired or whose time window has closed —
-    the same filter `find_requirements` applies, so the two agree.
+    the same filter `match_resource` applies, so the two agree.
     """
     try:
         event = get_event(event_id)

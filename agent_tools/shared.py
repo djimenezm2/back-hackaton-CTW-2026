@@ -51,6 +51,49 @@ class ToolInputError(Exception):
         self.payload = payload
 
 
+def validate_coordinates(lat: float, lon: float, label: str = "") -> None:
+    """
+    Reject a point that is not on Earth.
+
+    Raises:
+        ToolInputError: When either value is out of range.
+
+    Note:
+        PostGIS accepts an impossible latitude and orders results by distance from it
+        without complaining, so the reply looks like a valid "nearest first" computed from
+        a place that does not exist. Caught here or not at all.
+    """
+    prefix = f"{label} " if label else ""
+    if not -90 <= lat <= 90:
+        raise ToolInputError(
+            failure(f"{prefix}latitude {lat} is out of range", "latitude runs from -90 to 90")
+        )
+    if not -180 <= lon <= 180:
+        raise ToolInputError(
+            failure(f"{prefix}longitude {lon} is out of range", "longitude runs from -180 to 180")
+        )
+
+
+def validate_radius(radius_km: float) -> None:
+    """
+    Reject a search radius that can contain nothing.
+
+    Raises:
+        ToolInputError: When the radius is zero or negative.
+
+    Note:
+        Without this the query is well-formed and matches nothing, so an impossible request
+        reads as "no results" — and the agent tells a coordinator a place needs nothing.
+    """
+    if radius_km <= 0:
+        raise ToolInputError(
+            failure(
+                f"radius_km must be greater than zero, got {radius_km}",
+                "use a positive distance, or omit it to search the whole area",
+            )
+        )
+
+
 def get_event(event_id: int) -> Event:
     """
     Fetch an event by id.
@@ -92,7 +135,7 @@ def resolve_place_arg(place: str, country_code: str) -> AdminUnit:
     Resolve a place name or national code within one country.
 
     Raises:
-        ToolInputError: With `candidates` when a name matches several units. Place names
+        ToolInputError: With `place_options` when a name matches several units. Place names
             repeat across regions, and picking the first silently routes aid to the wrong
             one — a failure nobody notices until the truck arrives.
     """
@@ -109,7 +152,7 @@ def resolve_place_arg(place: str, country_code: str) -> AdminUnit:
             failure(
                 f"{place!r} matches {len(matches)} administrative units",
                 "call again with the national code of the one you mean",
-                candidates=[
+                place_options=[
                     {
                         "code": unit.code,
                         "name": unit.name,

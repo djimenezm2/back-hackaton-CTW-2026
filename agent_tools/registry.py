@@ -2,22 +2,23 @@
 Which tools each agent gets.
 
 Grouping is not organization, it is enforcement. The frontier agent must be structurally
-incapable of reading a post, and a toolset is how that is guaranteed — by what is absent
-from a list, not by a sentence in a prompt asking it not to.
+incapable of reading a post, and that is guaranteed by what is absent from a list rather
+than by a sentence in a prompt asking it not to.
 
 Note:
     `run_matching_pass` is deliberately in no toolset. It rewrites every proposal for an
     event, so an agent calling it mid-conversation would invalidate the pairings it had
-    just reasoned about. It runs on a schedule and the agent reads its output.
+    just reasoned about. It runs on a schedule; the agent reads its output.
 """
 
+from agent_tools.check_coverage import check_coverage
 from agent_tools.create_harvest_job import create_harvest_job
 from agent_tools.draft_outreach import draft_outreach
-from agent_tools.find_requirements import find_requirements
+from agent_tools.find_gaps import find_gaps
 from agent_tools.get_actor_contacts import get_actor_contacts
 from agent_tools.get_balance import get_balance
 from agent_tools.get_frontier import get_frontier
-from agent_tools.plan_trip_stops import plan_trip_stops
+from agent_tools.match_resource import match_resource
 from agent_tools.propose_match import propose_match
 from agent_tools.road_distance import road_distance
 
@@ -27,13 +28,14 @@ FRONTIER_TOOLS = [
     create_harvest_job,
 ]
 
-# Orientation first, then detail, then action — the order an operator would work in.
+# Ordered the way an operator works: connect first, then check, then act.
 COORDINATION_TOOLS = [
+    match_resource,
+    check_coverage,
+    find_gaps,
     get_balance,
-    find_requirements,
     get_actor_contacts,
     road_distance,
-    plan_trip_stops,
     propose_match,
     draft_outreach,
 ]

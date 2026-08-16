@@ -1,5 +1,5 @@
 """
-Tests for the `find_requirements` tool.
+Tests for the `match_resource` tool.
 
 They cover the wrapper's own job — argument translation, truncation, serialization and
 failures returned as values — plus the service guarantees the tool docstring promises to
@@ -13,12 +13,10 @@ from decimal import Decimal
 from django.test import TestCase
 from django.utils import timezone
 
-from agent_tools.find_requirements import find_requirements
+from agent_tools.match_resource import match_resource
 from ayudagente.radar.choices import (
     ActorKind,
     AdminLevel,
-    Direction,
-    LocationPrecision,
     Urgency,
 )
 from ayudagente.radar.models import AdminUnit, ResourceType
@@ -34,7 +32,7 @@ from ayudagente.radar.tests.factories import (
 )
 
 
-class FindRequirementsToolTests(TestCase):
+class MatchResourceTests(TestCase):
     def setUp(self):
         self.event = make_event()
         self.alimentos = make_resource("alimentos", name="Alimentos")
@@ -69,12 +67,12 @@ class FindRequirementsToolTests(TestCase):
             free_text="Necesitamos mercados para 40 familias",
         )
 
-        result = find_requirements.invoke({"event_id": self.event.id, "direction": "needs"})
+        result = match_resource.invoke({"event_id": self.event.id, "offering": True})
 
         self.assertEqual(result["count"], 1)
         self.assertFalse(result["truncated"])
-        row = result["requirements"][0]
-        self.assertEqual(row["outstanding"], 150.0)  # 200 asked, 50 already covered
+        row = result["candidates"][0]
+        self.assertEqual(row["still_needed"], 150.0)  # 200 asked, 50 already covered
         self.assertEqual(row["unit"], "mercados")
         self.assertEqual(row["municipality"], "Pereira")
         self.assertEqual(row["resource_key"], "alimentos")
@@ -84,34 +82,34 @@ class FindRequirementsToolTests(TestCase):
     def test_unstated_quantity_is_null_not_zero(self):
         self._need(PEREIRA, "Sin cifra")
 
-        result = find_requirements.invoke({"event_id": self.event.id, "direction": "needs"})
+        result = match_resource.invoke({"event_id": self.event.id, "offering": True})
 
-        self.assertIsNone(result["requirements"][0]["outstanding"])
+        self.assertIsNone(result["candidates"][0]["still_needed"])
 
     def test_orders_by_distance_and_reports_kilometres(self):
         self._need(DOSQUEBRADAS, "Cerca")
         self._need(QUIBDO, "Lejos")
 
-        result = find_requirements.invoke(
+        result = match_resource.invoke(
             {
                 "event_id": self.event.id,
-                "direction": "needs",
+                "offering": True,
                 "lat": PEREIRA.y,
                 "lon": PEREIRA.x,
             }
         )
 
-        places = [r["place"] for r in result["requirements"]]
+        places = [r["place"] for r in result["candidates"]]
         self.assertEqual(places, ["Cerca", "Lejos"])
-        self.assertLess(result["requirements"][0]["distance_km"], 10)
+        self.assertLess(result["candidates"][0]["distance_km"], 10)
 
     def test_resource_key_walks_the_tree_in_both_directions(self):
         self._need(PEREIRA, "Necesita comida genérica", resource=self.alimentos)
 
-        result = find_requirements.invoke(
+        result = match_resource.invoke(
             {
                 "event_id": self.event.id,
-                "direction": "needs",
+                "offering": True,
                 "resource_key": "alimentos_mascotas",
             }
         )
@@ -122,45 +120,35 @@ class FindRequirementsToolTests(TestCase):
         for i in range(6):
             self._need(PEREIRA, f"Centro {i}")
 
-        result = find_requirements.invoke(
-            {"event_id": self.event.id, "direction": "needs", "limit": 3}
-        )
+        result = match_resource.invoke({"event_id": self.event.id, "offering": True, "limit": 3})
 
         self.assertEqual(result["count"], 3)
-        self.assertEqual(len(result["requirements"]), 3)
+        self.assertEqual(len(result["candidates"]), 3)
         self.assertTrue(result["truncated"])
 
     def test_limit_is_capped_rather_than_obeyed(self):
         self._need(PEREIRA, "Uno")
 
-        result = find_requirements.invoke(
-            {"event_id": self.event.id, "direction": "needs", "limit": 500}
-        )
+        result = match_resource.invoke({"event_id": self.event.id, "offering": True, "limit": 500})
 
         self.assertEqual(result["count"], 1)
 
 
-class FindRequirementsToolFailureTests(TestCase):
+class MatchResourceFailureTests(TestCase):
     """Failures come back as values. An exception inside a tool call is an opaque trace."""
 
     def setUp(self):
         self.event = make_event()
 
     def test_unknown_event_says_so_instead_of_looking_empty(self):
-        result = find_requirements.invoke({"event_id": 9999, "direction": "needs"})
+        result = match_resource.invoke({"event_id": 9999, "offering": True})
 
         self.assertIn("error", result)
-        self.assertEqual(result["requirements"], [])
-
-    def test_unknown_direction_returns_the_valid_ones(self):
-        result = find_requirements.invoke({"event_id": self.event.id, "direction": "necesita"})
-
-        self.assertIn("error", result)
-        self.assertIn("needs", result["error"])
+        self.assertEqual(result["candidates"], [])
 
     def test_unknown_resource_key_is_not_a_silent_empty_result(self):
-        result = find_requirements.invoke(
-            {"event_id": self.event.id, "direction": "needs", "resource_key": "unobtanium"}
+        result = match_resource.invoke(
+            {"event_id": self.event.id, "offering": True, "resource_key": "unobtanium"}
         )
 
         self.assertIn("error", result)
@@ -170,8 +158,8 @@ class FindRequirementsToolFailureTests(TestCase):
         make_resource("agua_potable", name="Agua potable")
         make_resource("alimentos", name="Alimentos")
 
-        result = find_requirements.invoke(
-            {"event_id": self.event.id, "direction": "needs", "resource_key": "water"}
+        result = match_resource.invoke(
+            {"event_id": self.event.id, "offering": True, "resource_key": "water"}
         )
 
         self.assertIn("error", result)
@@ -196,10 +184,10 @@ class UrgencyOrderingTests(TestCase):
                 urgency=urgency,
             )
 
-        result = find_requirements.invoke({"event_id": self.event.id, "direction": "needs"})
+        result = match_resource.invoke({"event_id": self.event.id, "offering": True})
 
         self.assertEqual(
-            [r["urgency"] for r in result["requirements"]],
+            [r["urgency"] for r in result["candidates"]],
             ["critical", "high", "medium", "low"],
         )
 
@@ -221,11 +209,9 @@ class UrgencyOrderingTests(TestCase):
             urgency=Urgency.CRITICAL,
         )
 
-        result = find_requirements.invoke(
-            {"event_id": self.event.id, "direction": "needs", "limit": 1}
-        )
+        result = match_resource.invoke({"event_id": self.event.id, "offering": True, "limit": 1})
 
-        self.assertEqual(result["requirements"][0]["actor"], "el que importa")
+        self.assertEqual(result["candidates"][0]["actor"], "el que importa")
 
 
 class PlaceFilterTests(TestCase):
@@ -264,9 +250,7 @@ class PlaceFilterTests(TestCase):
         )
 
     def _search(self, place):
-        return find_requirements.invoke(
-            {"event_id": self.event.id, "direction": "needs", "place": place}
-        )
+        return match_resource.invoke({"event_id": self.event.id, "offering": True, "place": place})
 
     def test_a_municipality_excludes_everywhere_else(self):
         self._need(self.quibdo, QUIBDO, "Quibdó centro")
@@ -275,7 +259,7 @@ class PlaceFilterTests(TestCase):
         result = self._search("Quibdó")
 
         self.assertEqual(result["count"], 1)
-        self.assertEqual(result["requirements"][0]["municipality"], "Quibdó")
+        self.assertEqual(result["candidates"][0]["municipality"], "Quibdó")
 
     def test_a_name_without_its_accent_still_resolves(self):
         self._need(self.quibdo, QUIBDO, "Quibdó centro")
@@ -312,7 +296,7 @@ class PlaceFilterTests(TestCase):
         result = self._search("Quibdó")
 
         self.assertEqual(result["count"], 1)
-        self.assertEqual(result["requirements"][0]["place"], "Quibdó centro")
+        self.assertEqual(result["candidates"][0]["place"], "Quibdó centro")
 
     def test_a_repeated_name_asks_which_one_instead_of_guessing(self):
         risaralda = AdminUnit.objects.create(
@@ -335,9 +319,11 @@ class PlaceFilterTests(TestCase):
         result = self._search("Santa Rosa")
 
         self.assertIn("error", result)
-        codes = sorted(c["code"] for c in result["candidates"])
+        codes = sorted(c["code"] for c in result["place_options"])
         self.assertEqual(codes, ["27615", "66682"])
-        self.assertEqual(sorted(c["parent"] for c in result["candidates"]), ["Chocó", "Risaralda"])
+        self.assertEqual(
+            sorted(c["parent"] for c in result["place_options"]), ["Chocó", "Risaralda"]
+        )
 
 
 class TextSearchTests(TestCase):
@@ -357,9 +343,7 @@ class TextSearchTests(TestCase):
         )
 
     def _search(self, text):
-        return find_requirements.invoke(
-            {"event_id": self.event.id, "direction": "needs", "text": text}
-        )
+        return match_resource.invoke({"event_id": self.event.id, "offering": True, "text": text})
 
     def test_finds_wording_that_has_no_resource_of_its_own(self):
         self._need("Necesitamos leche de fórmula y pañales")
@@ -368,7 +352,7 @@ class TextSearchTests(TestCase):
         result = self._search("leche de formula")  # no accent, like a hurried typist
 
         self.assertEqual(result["count"], 1)
-        self.assertIn("fórmula", result["requirements"][0]["note"])
+        self.assertIn("fórmula", result["candidates"][0]["note"])
 
     def test_a_misspelling_still_lands(self):
         self._need("Necesitamos colchonetas para el albergue")
@@ -399,7 +383,7 @@ class TextSearchTests(TestCase):
         result = self._search("mercados")
 
         # The chattier row matches the query more closely and still comes second
-        self.assertEqual(result["requirements"][0]["actor"], "urgente")
+        self.assertEqual(result["candidates"][0]["actor"], "urgente")
 
 
 class ResourceResolutionTests(TestCase):
@@ -416,8 +400,8 @@ class ResourceResolutionTests(TestCase):
         )
 
     def _search(self, resource_key):
-        return find_requirements.invoke(
-            {"event_id": self.event.id, "direction": "needs", "resource_key": resource_key}
+        return match_resource.invoke(
+            {"event_id": self.event.id, "offering": True, "resource_key": resource_key}
         )
 
     def test_the_exact_slug_works(self):
@@ -431,10 +415,10 @@ class ResourceResolutionTests(TestCase):
 
     def test_a_missing_accent_still_resolves(self):
         make_resource("articulos_aseo", name="Artículos de aseo")
-        result = find_requirements.invoke(
+        result = match_resource.invoke(
             {
                 "event_id": self.event.id,
-                "direction": "needs",
+                "offering": True,
                 "resource_key": "articulos de aseo",
             }
         )
@@ -446,22 +430,13 @@ class ResourceResolutionTests(TestCase):
         self.assertIn("error", self._search("water"))
 
     def test_half_a_coordinate_is_rejected(self):
-        result = find_requirements.invoke(
-            {"event_id": self.event.id, "direction": "needs", "lat": 4.81}
-        )
+        result = match_resource.invoke({"event_id": self.event.id, "offering": True, "lat": 4.81})
 
         self.assertIn("error", result)
 
     def test_radius_without_a_point_is_rejected(self):
-        result = find_requirements.invoke(
-            {"event_id": self.event.id, "direction": "needs", "radius_km": 20}
-        )
-
-        self.assertIn("error", result)
-
-    def test_unknown_precision_is_rejected(self):
-        result = find_requirements.invoke(
-            {"event_id": self.event.id, "direction": "needs", "min_precision": "barrio"}
+        result = match_resource.invoke(
+            {"event_id": self.event.id, "offering": True, "radius_km": 20}
         )
 
         self.assertIn("error", result)
@@ -479,7 +454,7 @@ class RoutabilityTests(TestCase):
         return make_requirement(self.event, actor, self.agua, location, **kwargs)
 
     def _search(self):
-        return find_requirements.invoke({"event_id": self.event.id, "direction": "needs"})
+        return match_resource.invoke({"event_id": self.event.id, "offering": True})
 
     def test_a_centre_whose_window_closed_is_gone(self):
         self._need(
@@ -498,7 +473,7 @@ class RoutabilityTests(TestCase):
         result = self._search()
 
         self.assertEqual(result["count"], 1)
-        self.assertEqual(result["requirements"][0]["actor"], "Coliseo Mayor")
+        self.assertEqual(result["candidates"][0]["actor"], "Coliseo Mayor")
 
     def test_a_saturated_requirement_stops_being_offered(self):
         self._need(
@@ -508,21 +483,3 @@ class RoutabilityTests(TestCase):
             covered_quantity=Decimal(20),
         )
         self.assertEqual(self._search()["count"], 0)
-
-    def test_min_precision_drops_department_sized_dots(self):
-        self._need(
-            make_actor(self.event, "Chocó entero"),
-            "Chocó",
-            point=QUIBDO,
-            location={"precision": LocationPrecision.ADMIN_1},
-        )
-
-        result = find_requirements.invoke(
-            {
-                "event_id": self.event.id,
-                "direction": Direction.NEEDS,
-                "min_precision": LocationPrecision.ADMIN_2,
-            }
-        )
-
-        self.assertEqual(result["count"], 0)
