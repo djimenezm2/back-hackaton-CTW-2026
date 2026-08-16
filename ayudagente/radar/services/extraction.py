@@ -9,7 +9,6 @@ catches a photo that does not match its text.
 """
 
 import base64
-import mimetypes
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +21,49 @@ from ayudagente.radar.models import Extraction, Media, Observation
 from ayudagente.radar.schemas import ExtractionResult
 
 PROMPT_VERSION = "v9"
+
+# Leading bytes of the formats the model accepts
+SIGNATURES = (
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+)
+
+# ISO base media brands that mean HEIF, which the model refuses
+HEIF_BRANDS = (b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1")
+
+
+def _image_mime(data: bytes) -> str | None:
+    """
+    The image type of some bytes, read from the bytes themselves.
+
+    Args:
+        data (bytes): The stored file.
+
+    Returns:
+        str | None: A MIME type, or None when the model would refuse the format.
+
+    Note:
+        The stored name cannot be trusted: it ends in whatever the platform URL did, and a
+        live corpus held 176 `.php` and 147 `.bin` files that were ordinary JPEGs. Naming the
+        type from the extension sent `application/x-httpd-php` and `application/octet-stream`,
+        which the API rejects with a 400 — and a 400 that looked transient cost five retries
+        each.
+
+        An unrecognised header still goes as JPEG. Most of them are one, a lost call is cheap,
+        and refusing everything unknown would drop the images that work today.
+    """
+    head = data[:16]
+    for signature, mime in SIGNATURES:
+        if head.startswith(signature):
+            return mime
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    if head[4:8] == b"ftyp" and head[8:12] in HEIF_BRANDS:
+        return None
+    return "image/jpeg"
+
 
 SYSTEM_PROMPT = """\
 You read one social media post from a disaster zone and pull out what someone needs or what
@@ -227,18 +269,20 @@ class Extractor:
             blob_path (str): Path relative to `MEDIA_ROOT`.
 
         Returns:
-            str: A `data:` URI, or an empty string when the file is missing. A missing file
-                is skipped rather than raised on, because one unreadable image should not
-                cost the whole extraction.
+            str: A `data:` URI, or an empty string when the file is missing or holds a format
+                the model refuses. Both are skipped rather than raised on, because one
+                unreadable image should not cost the whole extraction.
         """
         if not blob_path:
             return ""
         path = Path(settings.MEDIA_ROOT) / blob_path
         if not path.is_file():
             return ""
-        mime = mimetypes.guess_type(path.name)[0] or "image/jpeg"
-        payload = base64.b64encode(path.read_bytes()).decode()
-        return f"data:{mime};base64,{payload}"
+        data = path.read_bytes()
+        mime = _image_mime(data)
+        if mime is None:
+            return ""
+        return f"data:{mime};base64,{base64.b64encode(data).decode()}"
 
     def _persist(
         self,

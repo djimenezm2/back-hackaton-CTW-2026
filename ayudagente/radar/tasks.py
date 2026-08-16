@@ -23,7 +23,7 @@ from uuid import uuid4
 
 from celery import shared_task
 from django.db import transaction
-from openai import APIError, RateLimitError
+from openai import APIError, BadRequestError, RateLimitError
 
 from agent_tools.agents import LLMNotConfigured, build_agent
 from ayudagente.radar.choices import EventStatus, JobStatus
@@ -41,6 +41,9 @@ logger = logging.getLogger(__name__)
 
 RETRYABLE = (RateLimitError, APIError)  # retried by the task, never waited on inline
 
+# A 400 is the request itself being wrong, and it subclasses APIError, so it needs naming
+PERMANENT = (BadRequestError,)
+
 # What the agent is told each round. Everything else it needs is in its prompt template.
 ROUND_PROMPT = (
     "Run a round. Read the frontier, pick the targets worth harvesting now, and queue "
@@ -51,6 +54,7 @@ ROUND_PROMPT = (
 @shared_task(
     bind=True,
     autoretry_for=RETRYABLE,
+    dont_autoretry_for=PERMANENT,
     retry_backoff=True,
     retry_backoff_max=300,
     retry_jitter=True,
@@ -79,6 +83,10 @@ def process_observation(self, observation_id: int, *, force: bool = False) -> di
         stored copies, so a post read before its photo reached disk goes through as text only
         — and the platform URL it would have come from expires within hours, so there is no
         second chance. A live run lost the images of 296 posts of 574 that way.
+
+        A `BadRequestError` is refused rather than retried. It subclasses `APIError`, so it
+        counted as transient and spent five attempts failing identically — 146 posts doing
+        that at once left a pool of 24 idle in front of a queue of 1244.
     """
     observation = Observation.objects.select_related("event").get(pk=observation_id)
 
