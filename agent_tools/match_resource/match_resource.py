@@ -27,7 +27,7 @@ from agent_tools.shared import (
     validate_coordinates,
     validate_radius,
 )
-from ayudagente.radar.choices import Direction
+from ayudagente.radar.choices import Direction, RequirementStatus
 from ayudagente.radar.services import find_requirements as find_requirements_service
 from ayudagente.radar.services.matching import geodesic_km
 
@@ -76,7 +76,15 @@ class MatchResourceInput(BaseModel):
 
 
 def _serialize(requirement, network: Network, origin) -> dict:
-    """Describe one counterparty as a decision: who, how far, how much is really left."""
+    """
+    Describe one counterparty as a decision: who, how far, how much is really left.
+
+    Note:
+        `confirmed` and `sources` travel with every row because the person asking is a member
+        of the public, not somebody reviewing a dashboard. They read one sentence and act on
+        it, so the answer has to be able to say "nobody has confirmed this yet" — and it can
+        only say that if the row carries it.
+    """
     location = requirement.location
     still = network.still_needed(requirement)
     row = {
@@ -93,6 +101,9 @@ def _serialize(requirement, network: Network, origin) -> dict:
         "still_needed": still,
         "already_committed": network.connected.get(requirement.id, 0),
         "reachable_by_us": requirement.actor_id in network.contactable(),
+        "confirmed": requirement.status != RequirementStatus.UNVERIFIED,
+        "sources": requirement.evidence.count(),
+        "actor_verified": requirement.actor.verified,
     }
     if requirement.free_text:
         row["note"] = requirement.free_text[:NOTE_CHARS]

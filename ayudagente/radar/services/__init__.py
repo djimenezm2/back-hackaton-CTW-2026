@@ -11,6 +11,7 @@ from ayudagente.radar.services.actors import (
     get_actor,
     get_contact_points,
 )
+from ayudagente.radar.services.comments import queue_comment_pulls, worth_reading
 from ayudagente.radar.services.frontier import (
     create_harvest_job,
     get_frontier,
@@ -71,6 +72,7 @@ __all__ = [
     "places_by_zone",
     "plan_trip_stops",
     "propose_match",
+    "queue_comment_pulls",
     "record_actionable_find",
     "record_harvest",
     "refresh_graph",
@@ -82,4 +84,5 @@ __all__ = [
     "run_harvest_job",
     "run_matching_pass",
     "sweep_query",
+    "worth_reading",
 ]

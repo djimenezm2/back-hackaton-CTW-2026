@@ -28,6 +28,7 @@ from openai import APIError, RateLimitError
 from agent_tools.agents import LLMNotConfigured, build_agent
 from ayudagente.radar.choices import EventStatus, JobStatus
 from ayudagente.radar.models import Event, Extraction, HarvestJob, Observation, Requirement
+from ayudagente.radar.services.comments import queue_comment_pulls
 from ayudagente.radar.services.extraction import Extractor
 from ayudagente.radar.services.frontier import record_actionable_find
 from ayudagente.radar.services.harvest import HarvestNotConfigured, run_harvest_job
@@ -247,10 +248,15 @@ def run_tick() -> dict:
         executed reads a scoreboard where nothing has moved, and the pacing check would see a
         deep queue and skip anyway — doing the work first is what keeps the loop moving rather
         than oscillating.
+
+        Comment pulls are queued mechanically, between the two. Choosing which post to read
+        replies under needs to know what the post said, and the frontier agent never sees a
+        post — so that decision cannot be its.
     """
     outcomes = {}
     for event in Event.objects.filter(status=EventStatus.ACTIVE):
         dispatch_pending(event.pk)
+        queue_comment_pulls(event)
         outcomes[event.pk] = run_round(event.pk)
     logger.info("tick covered %s active events", len(outcomes))
     return {"events": outcomes}

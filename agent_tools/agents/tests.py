@@ -57,6 +57,9 @@ class PromptTests(TestCase):
     def test_the_coordination_prompt_states_the_rules_the_tools_cannot_enforce(self):
         prompt = render_prompt("coordination", self.event).lower()
 
+        self.assertIn("confirmed", prompt)  # an unconfirmed lead is never stated as fact
+        self.assertIn("get_actor_contacts", prompt)  # a citizen needs a way to check first
+
         self.assertIn("match_resource", prompt)  # the tool most questions start from
         self.assertIn("do not translate", prompt)  # the catalog is Spanish
         self.assertIn("still_needed", prompt)  # already subtracts what others promised

@@ -34,7 +34,11 @@ from ayudagente.radar.choices import (
 )
 from ayudagente.radar.models import AdminUnit, Requirement, ResourceType
 
-OPEN_STATUSES = (RequirementStatus.OPEN, RequirementStatus.PARTIAL)
+OPEN_STATUSES = (
+    RequirementStatus.OPEN,
+    RequirementStatus.PARTIAL,
+    RequirementStatus.UNVERIFIED,
+)
 
 # Below this a trigram word match is coincidence, not a hit
 TEXT_MATCH_THRESHOLD = 0.4

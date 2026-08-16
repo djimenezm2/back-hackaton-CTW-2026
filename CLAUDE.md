@@ -133,8 +133,8 @@ Breaking any of these is a bug even when tests pass.
 9. Every scraping query carries a toponym from the event's country, or it pulls in other
    countries' disasters.
 10. Cost is recorded, never used to decide.
-11. A requirement nothing corroborates is `unverified`: shown, never matched, never written
-    to. It leaves quarantine on evidence, never on a human's say-so.
+11. A requirement nothing corroborates is `unverified`: matched and shown like any other,
+    carrying the label. It is marked, never hidden.
 12. A second sighting of the same actor, resource and direction attaches as evidence. It
     never becomes a second row.
 
@@ -166,26 +166,40 @@ The catalog has already split once in production — `agua` beside `water`, `tra
 now resolve on trigram alone. Anything that writes `ResourceType` directly instead of going
 through `resolve_resource` reintroduces that split.
 
-## Nothing enters the graph unconfirmed, and nothing waits for a person
+## The person asking is a member of the public
+
+Not an emergency professional watching a dashboard. A neighbour with a truck, a family with no
+water, someone holding a bag of clothes who does not know where to take it. They read one
+sentence in a chat and then drive somewhere or call someone.
+
+That decides several things. The agent has to *say* how solid an answer is, because nobody is
+going to filter a list — "lo vi en un solo post y nadie lo ha confirmado" is part of the
+answer, not metadata. It has to hand over the contact so they can check before travelling. And
+a wrong answer costs a real trip, which is why the tools carry `confirmed`, `sources` and
+`actor_verified` on every row.
+
+## Weak evidence is labelled, not gated
 
 A requirement is born `unverified` unless something backs it: two independent posts, a
-platform-verified account, enough credibility, or an organisation reporting a need. Quarantine
-forbids matching and outreach; it never hides anything, because four unconfirmed reports in one
-place is itself a reason to look.
+platform-verified account, enough credibility, or an organisation reporting a need. That label
+travels with it and is what the frontend shows. It is **not** a gate — the row is matched,
+proposed and drawn like any other.
 
-Every route out is one the world can walk alone. A quarantine only a human can drain runs at
-the speed of human review, which is the scarcest resource in an emergency and the one this
-system exists to spend less of.
+This was a gate once, and against a live corpus it hid 90% of everything found. The gate was
+also unnecessary, and invariant 4 is why: **nothing is ever sent automatically**. Every message
+resolves to a link a human clicks, and `covered_quantity` counts only once they have. A wrong
+requirement therefore cannot deliver anything, cannot saturate a real need and cannot reach a
+stranger. It costs a coordinator a glance — and one who can see how well backed a thing is
+spends that glance well.
 
-**Needs and offers are not symmetric.** A false need wastes a delivery; a false offer makes a
-real need look *covered*, so it stops being proposed and nobody notices. Offers carry the
-higher bar because that failure is silent.
+**Needs and offers still differ.** A false need wastes a trip; a false offer makes a real need
+look covered. So the bar for calling an offer well-backed is higher, and the frontend has that
+difference to show.
 
-Two things no credibility overrides: a location coarser than `admin_2`, which matching refuses
-anyway, and `text_image_conflict`, which is the signature of recycled imagery.
-
-`routable()` already filters on open statuses, so quarantine excludes a requirement from
-matching without matching knowing it exists. Anything that widens that filter reopens the door.
+The rule to keep: **filter for what cannot be acted on, never for what might be wrong.** A
+`discard`, a confidence under the floor and a place that does not resolve are all things
+nothing can be done with. Everything else is a judgement, and judgement belongs to whoever is
+looking at the screen.
 
 ## Corroboration only exists because rows are merged
 

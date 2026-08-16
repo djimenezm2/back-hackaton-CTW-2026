@@ -37,6 +37,11 @@ APIFY_ACTOR_BY_PLATFORM = {
     Platform.TIKTOK: "clockworks/tiktok-scraper",
 }
 
+# One Actor per platform for pulling the replies under a post. Only TikTok is proven.
+COMMENT_ACTOR_BY_PLATFORM = {
+    Platform.TIKTOK: "clockworks/tiktok-comments-scraper",
+}
+
 # The X Actor refuses anything smaller and treats the number as a floor, not a cap
 MIN_ITEMS_PER_TERM = 20
 
@@ -118,6 +123,36 @@ def build_input(platform: str, query: Query) -> dict:
     if builder is None:
         raise ValueError(f"no Apify Actor configured for platform {platform!r}")
     return builder(query)
+
+
+def build_comment_input(platform: str, permalinks: list[str], limit: int = 100) -> dict:
+    """
+    Translate "pull the replies under these posts" into what a comments Actor accepts.
+
+    Args:
+        platform (str): A `Platform` value.
+        permalinks (list[str]): Posts to read the replies of.
+        limit (int): Comments wanted per post.
+
+    Returns:
+        dict: The Actor's `run_input`.
+
+    Raises:
+        ValueError: When no post is given, or the platform has no proven comments Actor.
+
+    Note:
+        Comments carry no toponym, and they do not need one — invariant 9 is satisfied by the
+        post they hang under, which a place query already anchored. That is why this takes
+        permalinks rather than a `Query`.
+    """
+    if not permalinks:
+        raise ValueError("a comment pull needs at least one post to read")
+
+    actor = COMMENT_ACTOR_BY_PLATFORM.get(Platform(platform))
+    if actor is None:
+        raise ValueError(f"no comments Actor proven for platform {platform!r}")
+
+    return {"postURLs": permalinks, "commentsPerPost": limit, "maxRepliesPerComment": 0}
 
 
 def _for_x(query: Query) -> dict:

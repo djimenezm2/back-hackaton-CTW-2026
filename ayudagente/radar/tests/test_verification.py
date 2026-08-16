@@ -130,23 +130,23 @@ class RefusalTests(VerificationBase):
 
 
 class ConsequenceTests(VerificationBase):
-    """What quarantine actually forbids."""
+    """What the label does, and what it deliberately does not."""
 
-    def test_a_quarantined_requirement_is_never_matched(self):
+    def test_a_weakly_backed_requirement_is_still_matched(self):
+        # It marks, it does not block: nothing is sent without a human clicking
         requirement = self._requirement()
         verification.apply(requirement)
 
         routed = routable(Requirement.objects.filter(event=self.event))
 
-        self.assertNotIn(requirement, routed)
+        self.assertIn(requirement, routed)
 
-    def test_it_is_still_findable_when_asked_for(self):
+    def test_the_label_is_what_tells_a_coordinator_how_well_backed_it_is(self):
         requirement = self._requirement()
         verification.apply(requirement)
 
-        found = Requirement.objects.filter(event=self.event, status=RequirementStatus.UNVERIFIED)
-
-        self.assertIn(requirement, found)
+        requirement.refresh_from_db()
+        self.assertEqual(requirement.status, RequirementStatus.UNVERIFIED)
 
     def test_a_decision_somebody_already_made_is_not_reopened(self):
         requirement = self._requirement(verified=True)

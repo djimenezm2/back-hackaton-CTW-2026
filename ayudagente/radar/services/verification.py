@@ -1,31 +1,26 @@
 """
-Deciding what a requirement is allowed to do before anything has confirmed it.
+Saying how well a requirement is backed, and letting a person decide what that is worth.
 
-Nothing here waits for a person. A quarantine only a human can drain runs at the speed of
-human review, which during an emergency is the scarcest resource there is and the one this
-whole system exists to spend less of. So an unverified requirement is not held back until
-someone looks — it is held back until the *world* corroborates it, and the world does that
-by saying the same thing twice.
+This used to be a gate. An uncorroborated requirement was held out of matching entirely, and
+against a live corpus that hid 90% of everything found — the gate was beating the product.
 
-The question is never "is this true". It is **what may this be allowed to do**, and there are
-three answers, in rising order of harm:
+The gate was also unnecessary, and the reason is invariant 4. **Nothing is ever sent
+automatically**: every message resolves to a link a human clicks, and `covered_quantity` only
+counts once they have. So a wrong requirement cannot deliver anything, cannot saturate a real
+need, and cannot reach a stranger. The worst it does is cost a coordinator a glance — and a
+coordinator who can see *how well backed* a thing is spends that glance well.
 
-1. appear on the map — costs nothing when wrong
-2. be matched against — costs a coordinator's attention
-3. trigger a message to a real person — costs their trust, and ours
-
-Quarantine forbids the second and third. It never hides anything: a coordinator looking at a
-map should see that four unconfirmed needs were reported in a place, because that is itself a
-reason to look.
+So `unverified` marks rather than blocks. Everything is matched, everything is proposed, and
+the label travels with it.
 
 Note:
-    Needs and offers are not symmetric and the bar reflects it. A false need wastes a
-    delivery. A false offer makes a real need look *covered*, so it stops being proposed and
-    nobody notices — the failure is silent, which is the expensive direction.
+    Needs and offers still differ. A false need wastes a trip; a false offer makes a real need
+    look covered — so the bar for calling an offer well-backed is higher, and the frontend has
+    that difference to show.
 
-    `text_image_conflict` quarantines on its own. The model flags it when a photo does not
-    match what the text claims, which is the signature of recycled imagery, and no amount of
-    follower count should override it.
+    `text_image_conflict` overrides everything. When the photo does not match what the text
+    claims, that is the signature of recycled imagery, and no follower count should outweigh
+    it.
 """
 
 import logging
@@ -91,19 +86,22 @@ def verdict(requirement: Requirement, *, evidence_count: int | None = None) -> t
 
 def apply(requirement: Requirement, *, evidence_count: int | None = None) -> bool:
     """
-    Set a requirement's status from the verdict, and say whether it moved.
+    Label a requirement with how well it is backed, and say whether the label moved.
 
     Args:
         requirement (Requirement): The row to judge.
         evidence_count (int | None): Passed through to `verdict`.
 
     Returns:
-        bool: True when the status changed.
+        bool: True when the label changed.
 
     Note:
         Only ever moves between `open` and `unverified`. A requirement a human or the matching
         pass has already moved past those — covered, expired, discarded — is out of this
         function's hands, and quietly reopening one would undo a decision somebody made.
+
+        `unverified` no longer removes anything from matching. It is what the frontend reads to
+        show a proposal as weakly backed, and what a coordinator reads to decide.
     """
     if requirement.status not in (RequirementStatus.OPEN, RequirementStatus.UNVERIFIED):
         return False
