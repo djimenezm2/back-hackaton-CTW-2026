@@ -36,21 +36,32 @@ class Command(BaseCommand):
         )
         parser.add_argument("--demand", default="", help="Words the affected write.")
         parser.add_argument("--supply", default="", help="Words helpers write.")
+        parser.add_argument(
+            "--rearm",
+            action="store_true",
+            help="Bootstrap an event that is already active, instead of refusing.",
+        )
 
     def handle(self, *args, **options) -> None:
         """
         Activate the event and bootstrap its frontier.
 
         Raises:
-            CommandError: When no such event exists, when it is already active, or when its
-                country's gazetteer cannot be loaded — a sweep with no toponym pulls in other
-                countries' disasters, which is invariant 9.
+            CommandError: When no such event exists, when it is already active and `--rearm`
+                was not given, or when its country's gazetteer cannot be loaded — a sweep with
+                no toponym pulls in other countries' disasters, which is invariant 9.
+
+        Note:
+            An event can be active and still have no frontier: the seeded corpus arrives that
+            way, already carrying its posts but with nothing to harvest from. `--rearm` gives
+            one a sweep without pausing it first, and it queues fresh jobs every time it runs,
+            which is why it is a flag rather than the default.
         """
         event = Event.objects.filter(pk=options["event_id"]).first()
         if event is None:
             raise CommandError(f"no event {options['event_id']}")
-        if event.status == EventStatus.ACTIVE:
-            raise CommandError(f"{event.name} is already active")
+        if event.status == EventStatus.ACTIVE and not options["rearm"]:
+            raise CommandError(f"{event.name} is already active; pass --rearm to sweep it again")
         self._ensure_gazetteer(event)
 
         with transaction.atomic():

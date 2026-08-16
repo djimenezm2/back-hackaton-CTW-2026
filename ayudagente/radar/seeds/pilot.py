@@ -13,14 +13,20 @@ from pathlib import Path
 
 from django.conf import settings
 from django.contrib.gis.geos import Point
+from django.core.management import call_command
 
 from ayudagente.radar.choices import DecisionSource, JobStatus
-from ayudagente.radar.models import Event, HarvestJob
+from ayudagente.radar.models import Event, HarvestJob, Location
 from ayudagente.radar.seeds.base import Counts, Seed, Writer
 from ayudagente.radar.services.harvest import persist_items
 from ayudagente.radar.services.normalize import parse_timestamp
 
 PILOT_DIR = Path(settings.BASE_DIR) / "data" / "pilot"
+
+# A snapshot of the corpus after a real pipeline pass, so seeding draws a map for free
+PROCESSED = PILOT_DIR / "processed.json.gz"
+
+EVENT_NAMES = ("Chocó earthquake M7.4",)
 
 
 def _load_event(spec: dict, write: Writer) -> Event:
@@ -108,9 +114,42 @@ def _load_file(base: Path, spec: dict, event: Event, write: Writer) -> Counts:
     }
 
 
+def _load_processed(write: Writer) -> Counts:
+    """
+    Restore the corpus already read, so a fresh database has a map without a model bill.
+
+    Args:
+        write (Writer): Progress sink.
+
+    Returns:
+        Counts: Rows restored per model, empty on a second run.
+
+    Note:
+        Written from a real pipeline pass rather than composed by hand — the requirements,
+        actors and matches in it are what the model actually extracted from those posts.
+        Regenerate it with `manage.py dumpdata radar --indent 0`.
+
+        Resources travel as natural keys rather than ids, so the snapshot composes with the
+        catalog instead of colliding with it: whether `load_taxonomy` ran first or not, the
+        slugs match and nothing is duplicated. Nothing here needs the gazetteer — a geocoded
+        `Location` carries its own point and never links to an administrative unit.
+    """
+    if Event.objects.filter(name__in=EVENT_NAMES).exists():
+        write("  already loaded")
+        return {}
+
+    call_command("loaddata", str(PROCESSED), verbosity=0)
+
+    with gzip.open(PROCESSED, "rt") as handle:
+        totals = Counter(row["model"].split(".")[-1] for row in json.load(handle))
+    for model, count in totals.most_common():
+        write(f"  {count:>6}  {model}")
+    return dict(totals)
+
+
 def load(write: Writer) -> Counts:
     """
-    Load the committed harvest.
+    Load the committed harvest, already read when a snapshot of it exists.
 
     Args:
         write (Writer): Progress sink.
@@ -120,7 +159,15 @@ def load(write: Writer) -> Counts:
 
     Raises:
         FileNotFoundError: If `data/pilot/manifest.json` is missing.
+
+    Note:
+        Prefers `processed.json.gz` because an unread corpus draws an empty map, and reading
+        it costs one model call per post. The raw files stay the fallback and the source the
+        snapshot is regenerated from.
     """
+    if PROCESSED.exists():
+        return _load_processed(write)
+
     manifest = json.loads((PILOT_DIR / "manifest.json").read_text())
     event = _load_event(manifest["event"], write)
 
@@ -130,9 +177,38 @@ def load(write: Writer) -> Counts:
     return dict(totals)
 
 
+def clear(write: Writer) -> int:
+    """
+    Delete the pilot event and the rows a cascade cannot reach.
+
+    Args:
+        write (Writer): Progress sink.
+
+    Returns:
+        int: Rows deleted, the event and everything under it included.
+
+    Note:
+        A `Location` hangs off no event — a place is a place, whichever emergency named it —
+        so deleting the event leaves every geocoded place behind. Only the ones nothing
+        points at any more are removed, or clearing one dataset would take places another
+        still uses. `ResourceType` is left alone on purpose: the catalog is reference data
+        with its own loader, and a resource the model discovered is worth keeping.
+    """
+    deleted, _ = Event.objects.filter(name__in=EVENT_NAMES).delete()
+
+    orphans, _ = Location.objects.filter(
+        actors__isnull=True, requirements__isnull=True, inbound_requirements__isnull=True
+    ).delete()
+    if orphans:
+        write(f"  {orphans} locations nothing referenced any more")
+
+    return deleted + orphans
+
+
 SEED = Seed(
     name="pilot",
     description="939 real items harvested from the Chocó earthquake (M7.4, 10 Aug 2026)",
-    event_names=("Chocó earthquake M7.4",),
+    event_names=EVENT_NAMES,
     load=load,
+    clear=clear,
 )
