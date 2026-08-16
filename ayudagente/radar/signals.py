@@ -3,9 +3,10 @@ The triggers that keep the stored graph current.
 
 Any write to the graph's inputs — actors, requirements, matches, whether from ingestion,
 an agent tool or the admin — queues a rebuild after the transaction commits. The rebuild
-itself is fingerprint-guarded, so redundant triggers are cheap by design; the one trigger
-worth suppressing is the write storm the matching pass causes while a rebuild is already
-running, which is what the `rebuilding` flag does.
+itself is fingerprint-guarded, so redundant triggers are cheap by design; the two triggers
+worth suppressing are the write storm the matching pass causes while a rebuild is already
+running (the `rebuilding` flag), and the thousand-row seed transaction that would otherwise
+queue a thousand identical rebuilds (the per-transaction dedupe below).
 """
 
 import logging
@@ -21,8 +22,19 @@ logger = logging.getLogger(__name__)
 
 
 def _schedule_rebuild(event_id: int | None) -> None:
+    """Queue one rebuild per event per transaction, however many rows the write touched."""
     if event_id is None or rebuilding.get():
         return
+
+    # Dedupe against the connection's own on-commit queue so a bulk load (seeds,
+    # ingestion) enqueues once per event instead of once per row — and warns once, not
+    # once per row, when the broker is down. The queue is transaction-scoped and cleared
+    # on rollback, so nothing leaks between requests or between tests.
+    connection = transaction.get_connection()
+    for entry in connection.run_on_commit:
+        func = entry[1]  # (savepoint_ids, func, robust) in current Django
+        if getattr(func, "_graph_rebuild_event", None) == event_id:
+            return
 
     def enqueue() -> None:
         from ayudagente.radar.tasks import rebuild_graph
@@ -30,8 +42,13 @@ def _schedule_rebuild(event_id: int | None) -> None:
         try:
             rebuild_graph.delay(event_id)  # type: ignore[attr-defined]  # celery stubs
         except Exception:  # broker down (local shell without redis) — reads self-heal
-            logger.warning("could not queue graph rebuild for event %s", event_id)
+            logger.warning(
+                "could not queue graph rebuild for event %s (is Redis/Celery up?); "
+                "the snapshot will refresh on the next build_graph or first fetch",
+                event_id,
+            )
 
+    enqueue._graph_rebuild_event = event_id  # type: ignore[attr-defined]  # dedupe marker
     transaction.on_commit(enqueue)
 
 

@@ -78,18 +78,19 @@ class GraphSnapshotTests(ApiTestCase):
         self.assertTrue(rebuilt)
         self.assertEqual(snapshot.payload["edges"][0]["status"], MatchStatus.CONTACTED)
 
-    def test_writes_queue_a_rebuild_after_commit(self):
+    def test_writes_queue_one_rebuild_per_event_per_transaction(self):
+        # A fresh event: setUp's writes already queued a rebuild for self.event inside
+        # this same test transaction, and the dedupe would (correctly) swallow a second.
+        other = make_event(name="Otro evento")
         with (
             patch("ayudagente.radar.tasks.rebuild_graph.delay") as delay,
             self.captureOnCommitCallbacks(execute=True),
         ):
-            make_requirement(
-                self.event,
-                make_actor(self.event, "Nuevo"),
-                self.agua,
-                make_location(PEREIRA, "Nuevo"),
-            )
-        delay.assert_called_with(self.event.id)
+            actor = make_actor(other, "Nuevo")
+            make_requirement(other, actor, self.agua, make_location(PEREIRA, "Nuevo"))
+            make_requirement(other, actor, self.agua, make_location(DOSQUEBRADAS, "Nuevo 2"))
+
+        delay.assert_called_once_with(other.id)  # three writes, one enqueue
 
     def test_the_rebuild_does_not_retrigger_itself(self):
         # The pass writes matches; those writes must not queue another rebuild.
