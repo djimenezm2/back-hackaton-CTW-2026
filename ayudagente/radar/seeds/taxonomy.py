@@ -6,7 +6,17 @@ what a Colombian coordinator reads on screen. The hierarchy is what lets a need 
 mats be met by an offer of bedding when nothing closer exists, so a resource without a parent
 can only ever match itself.
 
+`humanitarian_aid` is the root of everything a collection center hands out — water, food,
+medicine, hygiene, shelter and their children. That is what makes "tenemos un centro de acopio
+de ayudas humanitarias" a usable offer instead of a dead node. Transport, machinery, power,
+volunteers and cash stay outside it: a truck is not a donation, and an offer of aid must never
+be proposed as a way to move it.
+
 Note:
+    Siblings never connect. Compatibility is a resource plus its ancestors and descendants, so
+    an aid offer reaches a water need through the tree while a water offer still cannot cover a
+    food need. Widening a category is therefore safe; flattening one is not.
+
     The extractor guesses one of these keys per item. An unrecognised guess is not an error —
     the ingest step creates it as a parentless leaf, which is exactly the "add a resource
     mid-emergency without a migration" case the table exists for. It just will not participate
@@ -15,7 +25,8 @@ Note:
     Such a leaf is created with its name equal to its key, and that equality is the marker for
     "auto-created, never named by a human". Adding the key to `RESOURCES` and reloading adopts
     it: the seed fills in the Spanish name, the parent and the unit. A row somebody has already
-    named is never overwritten.
+    named keeps its name — but never its parent. The hierarchy is owned by this file, because a
+    graph half of whose edges came from an old copy of it is worse than either version.
 
     `LEGACY_KEYS` exists because this seed replaced a data migration that keyed the catalog in
     Spanish, and `clear` only ever removed what this file declares. Any database seeded before
@@ -26,16 +37,17 @@ Note:
 from ayudagente.radar.models import Requirement, ResourceType
 from ayudagente.radar.seeds.base import Counts, Seed, Writer
 
-# (key, display name, parent key, default unit, perishable)
+# (key, display name, parent key, default unit, perishable) — a parent precedes its children
 RESOURCES = [
-    ("water", "Agua", None, "litros", False),
-    ("food", "Alimentos", None, "kg", False),
+    ("humanitarian_aid", "Ayuda humanitaria", None, "kits", False),
+    ("water", "Agua", "humanitarian_aid", "litros", False),
+    ("food", "Alimentos", "humanitarian_aid", "kg", False),
     ("perishable_food", "Alimentos perecederos", "food", "kg", True),
     ("pet_food", "Alimento para mascotas", "food", "kg", False),
-    ("medicine", "Medicamentos", None, "kits", False),
+    ("medicine", "Medicamentos", "humanitarian_aid", "kits", False),
     ("medical_care", "Atención médica", "medicine", "personas", False),
-    ("hygiene", "Aseo e higiene", None, "kits", False),
-    ("shelter", "Refugio", None, "unidades", False),
+    ("hygiene", "Aseo e higiene", "humanitarian_aid", "kits", False),
+    ("shelter", "Refugio", "humanitarian_aid", "unidades", False),
     ("tents", "Carpas", "shelter", "unidades", False),
     ("bedding", "Colchonetas y cobijas", "shelter", "unidades", False),
     ("clothing", "Ropa", "shelter", "unidades", False),
@@ -47,11 +59,10 @@ RESOURCES = [
     ("communications", "Comunicaciones", None, "unidades", False),
     ("volunteers", "Voluntarios", None, "personas", False),
     ("rescue", "Rescate", "volunteers", "personas", False),
+    ("support", "Apoyo general", "volunteers", "personas", False),
     ("mental_health", "Apoyo psicosocial", None, "personas", False),
     ("cash", "Dinero", None, "COP", False),
     ("collection_point", "Punto de acopio", None, "unidades", False),
-    ("humanitarian_aid", "Ayuda humanitaria", None, "kits", False),
-    ("support", "Apoyo general", "volunteers", "personas", False),
 ]
 
 # Spanish-keyed duplicates, folded into their English key on load
@@ -88,6 +99,7 @@ def load(write: Writer) -> Counts:
     """
     created = 0
     adopted = 0
+    regrafted = 0
     by_key: dict[str, ResourceType] = {}
 
     for key, name, parent_key, unit, perishable in RESOURCES:
@@ -103,23 +115,38 @@ def load(write: Writer) -> Counts:
         )
         by_key[key] = resource
         created += int(was_created)
+        if was_created:
+            continue
 
-        if not was_created and resource.name == resource.key:
+        parent_id = parent.id if parent else None
+        if resource.name == resource.key:
             resource.name = name
-            resource.parent = parent
             resource.default_unit = unit
             resource.perishable = perishable
+            resource.parent_id = parent_id
             resource.save(update_fields=["name", "parent", "default_unit", "perishable"])
             adopted += 1
+        elif resource.parent_id != parent_id:
+            resource.parent_id = parent_id
+            resource.save(update_fields=["parent"])
+            regrafted += 1
 
     retired = _retire_legacy_keys(by_key)
 
     write(f"  {created} resource types created, {len(RESOURCES) - created} already present")
-    if adopted:
-        write(f"  {adopted} auto-created types adopted into the taxonomy")
-    if retired:
-        write(f"  {retired} Spanish-keyed duplicates retired")
-    return {"resource_types": created, "adopted": adopted, "retired": retired}
+    for count, what in (
+        (adopted, "auto-created types adopted into the taxonomy"),
+        (regrafted, "types moved to the parent this file declares"),
+        (retired, "Spanish-keyed duplicates retired"),
+    ):
+        if count:
+            write(f"  {count} {what}")
+    return {
+        "resource_types": created,
+        "adopted": adopted,
+        "regrafted": regrafted,
+        "retired": retired,
+    }
 
 
 def _retire_legacy_keys(by_key: dict[str, ResourceType]) -> int:
@@ -159,14 +186,23 @@ def clear(write: Writer) -> int:
         write (Writer): Progress sink.
 
     Returns:
-        int: Rows removed. A resource still referenced by a requirement is protected and
-            survives, which is correct — the catalog outlives any one event's data.
+        int: Rows removed. A type still referenced by a requirement or still holding children
+            is skipped, which is correct — the catalog outlives any one event's data.
+
+    Note:
+        Referenced types are excluded by the query rather than left to the database, because
+        `Requirement.resource` is `PROTECT`: reaching one raises `ProtectedError` and aborts
+        the whole clear, taking the seeds that had not run yet with it.
     """
     removed = 0
     for key, *_ in reversed(RESOURCES):
-        deleted, _ = ResourceType.objects.filter(key=key, children__isnull=True).delete()
+        deleted, _ = ResourceType.objects.filter(
+            key=key, children__isnull=True, requirements__isnull=True
+        ).delete()
         removed += deleted
-    write(f"  removed {removed} resource types")
+
+    kept = ResourceType.objects.filter(key__in=[key for key, *_ in RESOURCES]).count()
+    write(f"  removed {removed} resource types" + (f", {kept} still in use" if kept else ""))
     return removed
 
 

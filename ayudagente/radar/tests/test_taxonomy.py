@@ -10,6 +10,7 @@ from django.test import TestCase
 
 from ayudagente.radar.models import Requirement, ResourceType
 from ayudagente.radar.seeds import taxonomy
+from ayudagente.radar.services.requirements import resource_family
 from ayudagente.radar.tests.factories import (
     PEREIRA,
     make_actor,
@@ -68,6 +69,86 @@ class AdoptionTests(TestCase):
         load()
 
         self.assertEqual(load()["adopted"], 0)
+
+
+class HierarchyTests(TestCase):
+    """Aid is the root of what a collection center hands out, and nothing else."""
+
+    def setUp(self):
+        load()
+
+    def _family(self, key: str) -> set[str]:
+        resource = ResourceType.objects.get(key=key)
+        return set(
+            ResourceType.objects.filter(id__in=resource_family(resource)).values_list(
+                "key", flat=True
+            )
+        )
+
+    def test_an_aid_offer_reaches_the_specific_needs_under_it(self):
+        family = self._family("humanitarian_aid")
+
+        self.assertLessEqual({"water", "food", "medicine", "hygiene", "shelter"}, family)
+        self.assertLessEqual({"tents", "bedding", "pet_food", "medical_care"}, family)
+
+    def test_an_aid_offer_is_never_proposed_as_transport_or_labour(self):
+        family = self._family("humanitarian_aid")
+
+        for key in ("transport", "machinery", "power", "generators", "volunteers", "cash"):
+            with self.subTest(key=key):
+                self.assertNotIn(key, family)
+
+    def test_siblings_still_do_not_cover_each_other(self):
+        # Water and food share a parent; widening the tree must not connect them
+        self.assertNotIn("food", self._family("water"))
+        self.assertNotIn("medicine", self._family("food"))
+
+    def test_a_specific_offer_still_covers_the_generic_need(self):
+        self.assertIn("humanitarian_aid", self._family("water"))
+
+    def test_an_existing_row_is_moved_to_the_declared_parent(self):
+        water = ResourceType.objects.get(key="water")
+        water.parent = None
+        water.save(update_fields=["parent"])
+
+        counts = load()
+
+        water.refresh_from_db()
+        self.assertEqual(counts["regrafted"], 1)
+        assert water.parent is not None
+        self.assertEqual(water.parent.key, "humanitarian_aid")
+
+    def test_regrafting_does_not_repeat(self):
+        self.assertEqual(load()["regrafted"], 0)
+
+
+class ClearTests(TestCase):
+    """`Requirement.resource` is PROTECT, so clearing has to exclude what is in use."""
+
+    def setUp(self):
+        load()
+        self.event = make_event()
+        self.actor = make_actor(self.event, "Barrio Cuba")
+
+    def test_a_referenced_type_is_skipped_rather_than_raising(self):
+        make_requirement(
+            self.event,
+            self.actor,
+            ResourceType.objects.get(key="support"),
+            make_location(PEREIRA, "cuba"),
+        )
+
+        taxonomy.clear(lambda _: None)
+
+        # `volunteers` survives too: it is the parent of the row that had to stay
+        self.assertEqual(
+            sorted(ResourceType.objects.values_list("key", flat=True)),
+            ["support", "volunteers"],
+        )
+
+    def test_an_unused_catalog_is_removed_whole(self):
+        self.assertEqual(taxonomy.clear(lambda _: None), len(taxonomy.RESOURCES))
+        self.assertEqual(ResourceType.objects.count(), 0)
 
 
 class LegacyKeyTests(TestCase):

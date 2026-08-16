@@ -53,6 +53,11 @@ class Command(BaseCommand):
         Note:
             Each dataset runs in its own transaction, so a failure loading the second one
             does not undo the first.
+
+            Clearing walks the registry backwards, and that is not cosmetic. The catalog
+            loads first because the scenarios reference it, so it can only be removed once
+            they are gone — clearing forwards leaves every resource type that was still in
+            use at the moment its turn came, and they are orphans by the time the run ends.
         """
         if options["list"]:
             for seed in SEEDS.values():
@@ -64,12 +69,15 @@ class Command(BaseCommand):
         if not selected:
             raise CommandError("no datasets are registered")
 
-        for seed in selected:
-            # One transaction per dataset: a failure in the second must not undo the first.
-            with transaction.atomic():
-                if options["clear"] or options["flush"]:
+        if options["clear"] or options["flush"]:
+            for seed in reversed(selected):
+                # One transaction per dataset: a failure in the second must not undo the first
+                with transaction.atomic():
                     self.stdout.write(f"clearing {seed.name}: {self._clear(seed)} rows")
-                if not options["clear"]:
+
+        if not options["clear"]:
+            for seed in selected:
+                with transaction.atomic():
                     self._load(seed)
 
     def _clear(self, seed: Seed) -> int:
