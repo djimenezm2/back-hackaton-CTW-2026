@@ -28,6 +28,7 @@ ayudagente/       product package — every app lives in here, never at the repo
     radar/        harvest, graph and search frontier (app label: radar)
         choices.py    all TextChoices, centralized
         models/       split by layer, re-exported from the package
+        views/        the read API, split by entity — plain Django, no DRF
         tests/        next to the code they cover
 docs/             architecture documentation
 docker/           database image and init scripts

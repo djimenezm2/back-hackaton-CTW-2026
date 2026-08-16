@@ -85,7 +85,7 @@ USE_TZ = True
 
 # Harvested images live on disk, not in Postgres: bytes would bloat every backup
 MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", BASE_DIR / "media"))
-MEDIA_URL = "media/"
+MEDIA_URL = "/media/"  # rooted, or a cross-origin frontend resolves it against its own host
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
@@ -103,8 +103,7 @@ CORS_ALLOW_HEADERS = (*default_headers, "x-api-key")  # or the preflight drops t
 API_KEYS = [key.strip() for key in os.environ.get("API_KEYS", "").split(",") if key.strip()]
 API_KEY_PROTECTED_PREFIXES = ["/api/"]
 
-# Some hosts carry a second GDAL build (e.g. /usr/gdal312) that ctypes picks up but that
-# is linked against an incompatible GEOS. These let each dev pin the working libraries.
+# Pin the working libraries when a host carries a second, incompatible GDAL/GEOS build
 if os.environ.get("GDAL_LIBRARY_PATH"):
     GDAL_LIBRARY_PATH = os.environ["GDAL_LIBRARY_PATH"]
 if os.environ.get("GEOS_LIBRARY_PATH"):
