@@ -283,6 +283,10 @@ class LLMConfigTests(TestCase):
         self.assertEqual(self._build(model_name="gpt-5.6-sol").model_name, "gpt-5.6-sol")
         self.assertEqual(self._build(model_name="gpt-4o").model_name, "gpt-4o")
 
+    def test_tool_calls_go_through_the_responses_api(self):
+        # chat/completions refuses function tools on a reasoning model: 400 on the first call
+        self.assertTrue(self._build(model_name="gpt-5.6-sol").use_responses_api)
+
     def test_a_reasoning_model_is_sent_no_temperature(self):
         # Reasoning models reject `temperature` outright — sending it is a 400 every call
         self.assertIsNone(self._build(model_name="gpt-5.6-sol").temperature)

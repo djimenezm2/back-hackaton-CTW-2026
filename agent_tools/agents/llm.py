@@ -11,6 +11,11 @@ Note:
     here would drift from `OPENAI_MODEL_REASONING` the first time somebody changed one of
     them, and the symptom — the agent quietly answering on a different model than the rest
     of the pipeline — is invisible until the bill or the quality says so.
+
+    The Responses API is set here rather than left to deepagents. Its OpenAI provider
+    profile turns it on, but only while resolving a model *string*; this module hands
+    `create_deep_agent` a built instance, so the profile never runs and the default endpoint
+    survives. Missing it costs a 400 on the agent's first tool call, not at startup.
 """
 
 from django.conf import settings
@@ -69,6 +74,7 @@ def build_chat_model(role: Role = Role.REASONING) -> BaseChatModel:
         "api_key": settings.OPENAI_API_KEY,
         "timeout": REQUEST_TIMEOUT_SECONDS,
         "max_retries": 2,
+        "use_responses_api": True,  # chat/completions rejects tools on a reasoning model
     }
 
     if accepts_temperature(model_name):
