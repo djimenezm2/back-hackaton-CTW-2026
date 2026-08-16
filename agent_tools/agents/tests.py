@@ -17,9 +17,11 @@ from django.test import Client, TestCase
 from django.urls import reverse
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 from langchain_openai import ChatOpenAI
+from psycopg.conninfo import conninfo_to_dict
 
 from agent_tools.agents import render_prompt, translate_chunk
 from agent_tools.agents.build import load_prompt
+from agent_tools.agents.checkpointer import build_connection_string
 from agent_tools.agents.llm import LLMNotConfigured, accepts_temperature, build_chat_model
 from agent_tools.agents.streaming import stream_agent, summarize_tool_result
 from agent_tools.registry import TOOLSETS
@@ -208,6 +210,25 @@ class StreamAgentTests(TestCase):
         kinds = [event["type"] for event in self._events(graph)]
 
         self.assertEqual(kinds, ["start", "tool_start", "tool_end", "token", "done"])
+
+
+class CheckpointerTests(TestCase):
+    def test_a_password_with_url_metacharacters_survives(self):
+        # As a URL this reparses into a different host and database, and says neither
+        db = {
+            "USER": "hackaton",
+            "PASSWORD": "p@ss/w:rd#1",
+            "HOST": "localhost",
+            "PORT": "5433",
+            "NAME": "hackaton",
+        }
+        with self.settings(DATABASES={"default": db}):
+            conninfo = build_connection_string()
+
+        parsed = conninfo_to_dict(conninfo)
+        self.assertEqual(parsed["password"], "p@ss/w:rd#1")
+        self.assertEqual(parsed["host"], "localhost")
+        self.assertEqual(parsed["dbname"], "hackaton")
 
 
 class LLMConfigTests(TestCase):

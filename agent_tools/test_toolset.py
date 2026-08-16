@@ -230,6 +230,26 @@ class ActorContactsToolTests(TestCase):
 
         self.assertEqual(result["actor_id"], self.actor.id)
 
+    def test_a_chain_of_merges_resolves_all_the_way(self):
+        # Merges arrive one at a time: A into B, then B into C
+        middle = make_actor(self.event, "ong", merged_into=self.actor)
+        oldest = make_actor(self.event, "la ong", merged_into=middle)
+
+        result = get_actor_contacts.invoke({"actor_id": oldest.id})
+
+        self.assertEqual(result["actor_id"], self.actor.id)
+
+    def test_a_merge_cycle_does_not_hang_the_request(self):
+        other = make_actor(self.event, "Otra ONG", kind=ActorKind.NONPROFIT)
+        self.actor.merged_into = other
+        self.actor.save()
+        other.merged_into = self.actor
+        other.save()
+
+        result = get_actor_contacts.invoke({"actor_id": self.actor.id})
+
+        self.assertIn(result["actor_id"], {self.actor.id, other.id})  # returns, wrong or not
+
 
 class ProposeMatchToolTests(TestCase):
     def setUp(self):
@@ -353,6 +373,11 @@ class DraftOutreachToolTests(TestCase):
 
         self.assertEqual(first["outreach_id"], second["outreach_id"])
 
+    def test_a_retry_is_reported_as_one_even_when_the_text_is_identical(self):
+        # The retry that matters resends the same body; comparing bodies gets it backwards
+        self.assertFalse(self._draft()["already_existed"])
+        self.assertTrue(self._draft()["already_existed"])
+
     def test_an_actor_who_opted_out_is_refused(self):
         self.contact.reachable = False
         self.contact.unreachable_reason = UnreachableReason.OPTED_OUT
@@ -446,6 +471,27 @@ class FrontierToolsTests(TestCase):
         self.assertIn("#SismoChoco", query)
         self.assertIn('-"Turquía"', query)  # other emergencies excluded
         self.assertEqual(job.decided_by, "agent")
+
+    def test_the_toponym_survives_a_lexicon_long_enough_to_hit_the_cap(self):
+        self.event.lexicon = {
+            "hashtags": [f"#tag{i}" for i in range(30)],
+            "nicknames": ["sismo del Chocó"],
+            "negatives": ["Turquía"],
+        }
+        self.event.save()
+        node = self._node()
+
+        result = create_harvest_job.invoke(
+            {
+                "event_id": self.event.id,
+                "node_id": node.id,
+                "rationale": "Léxico largo: el topónimo no puede caer fuera del recorte.",
+            }
+        )
+
+        query = HarvestJob.objects.get(id=result["job_id"]).actor_input["searchQuery"]
+        self.assertIn("Quibdó", query)  # the anchor, without which the query pulls the world
+        self.assertIn('-"Turquía"', query)
 
     def test_an_empty_rationale_is_refused(self):
         node = self._node()

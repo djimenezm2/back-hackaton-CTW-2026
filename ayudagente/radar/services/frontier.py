@@ -30,6 +30,7 @@ APIFY_ACTOR_BY_PLATFORM = {
 }
 
 MAX_QUERY_TERMS = 12
+MAX_NEGATIVE_TERMS = 6
 
 
 def get_frontier(event_id: int, limit: int = 60) -> list[FrontierNode]:
@@ -72,12 +73,18 @@ def build_search_query(event: Event, admin_unit: AdminUnit) -> str:
         "earthquake help" pulls in every other country's earthquake.
     """
     lexicon = event.lexicon or {}
-    terms = [admin_unit.name]
-    terms += list(lexicon.get("hashtags", []))[:4]
-    terms += list(lexicon.get("nicknames", []))[:4]
 
-    query = " OR ".join(f'"{term}"' for term in terms[:MAX_QUERY_TERMS])
-    negatives = " ".join(f'-"{term}"' for term in list(lexicon.get("negatives", []))[:6])
+    # The toponym is first and never dropped: it is the anchor the cap must not cut
+    terms = [admin_unit.name]
+    for key in ("hashtags", "nicknames"):
+        for term in lexicon.get(key, []) or []:
+            if term and term not in terms and len(terms) < MAX_QUERY_TERMS:
+                terms.append(term)
+
+    query = " OR ".join(f'"{term}"' for term in terms)
+    negatives = " ".join(
+        f'-"{term}"' for term in list(lexicon.get("negatives", []) or [])[:MAX_NEGATIVE_TERMS]
+    )
     return f"{query} {negatives}".strip()
 
 

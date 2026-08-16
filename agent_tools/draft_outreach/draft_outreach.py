@@ -14,9 +14,10 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from agent_tools.shared import failure
-from ayudagente.radar.choices import OutreachPurpose
-from ayudagente.radar.models import ContactPoint, Match, Requirement
+from ayudagente.radar.choices import ContactKind, OutreachPurpose
+from ayudagente.radar.models import ContactPoint, Match, Outreach, Requirement
 from ayudagente.radar.services import draft_outreach as draft_outreach_service
+from ayudagente.radar.services.outreach import CHANNEL_BY_CONTACT_KIND
 
 BODY_MIN_CHARS = 40
 BODY_MAX_CHARS = 900
@@ -109,6 +110,17 @@ def draft_outreach(
         if requirement is None:
             return failure(f"requirement {about_requirement_id} does not exist")
 
+    # Asked before writing: `get_or_create` cannot tell us afterwards whether it created,
+    # and comparing bodies gets it backwards for the retry that sends the same text
+    anchor = match or requirement
+    key = Outreach.build_idempotency_key(
+        contact_point.actor_id,
+        purpose,
+        CHANNEL_BY_CONTACT_KIND.get(ContactKind(contact_point.kind), ""),
+        anchor.id if anchor is not None else None,
+    )
+    already_existed = Outreach.objects.filter(idempotency_key=key).exists()
+
     try:
         outreach = draft_outreach_service(
             match=match,
@@ -129,5 +141,5 @@ def draft_outreach(
         "target_actor": outreach.target_actor.canonical_name,
         "target_url": outreach.target_url,
         "text_is_prefilled": outreach.text_is_prefilled,
-        "already_existed": outreach.body != body.strip(),
+        "already_existed": already_existed,
     }

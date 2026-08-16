@@ -104,7 +104,7 @@ if os.environ.get("GEOS_LIBRARY_PATH"):
     GEOS_LIBRARY_PATH = os.environ["GEOS_LIBRARY_PATH"]
 
 # OpenAI. A model per role, mapped onto the GPT-5.6 tiers: Sol for frontier judgment,
-# Terra for the high-volume extraction pass, Luna for cheap image triage.
+# Luna for cheap image triage. Extraction shares Sol until the volume justifies splitting.
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODELS = {
     "reasoning": os.environ.get("OPENAI_MODEL_REASONING", "gpt-5.6-sol"),

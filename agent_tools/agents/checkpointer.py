@@ -29,12 +29,36 @@ def build_connection_string() -> str:
         str: Points at the same database as the ORM. Deriving it rather than adding a
             second environment variable removes the chance of the two drifting apart and
             the agent quietly writing its history somewhere else.
+
+    Note:
+        Keyword form, not a URL. A password containing `@`, `/`, `:` or `#` — which any
+        generated one eventually does — silently reparses into a different host and
+        database when interpolated into a URL, and the resulting connection error names
+        neither.
     """
     db = settings.DATABASES["default"]
-    return (
-        f"postgresql://{db['USER']}:{db['PASSWORD']}"
-        f"@{db['HOST']}:{db['PORT']}/{db['NAME']}?sslmode=prefer"
-    )
+    parts = {
+        "host": db["HOST"],
+        "port": str(db["PORT"]),
+        "dbname": db["NAME"],
+        "user": db["USER"],
+        "password": db["PASSWORD"],
+        "sslmode": "prefer",
+    }
+    return " ".join(f"{key}={make_conninfo_value(value)}" for key, value in parts.items())
+
+
+def make_conninfo_value(value: str) -> str:
+    """
+    Quote one keyword/value connection parameter.
+
+    Returns:
+        str: Quoted when empty or when it contains a space or a quote, per libpq's rules.
+    """
+    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+    if escaped == "" or " " in escaped:
+        return f"'{escaped}'"
+    return escaped
 
 
 def get_checkpointer() -> BaseCheckpointSaver:

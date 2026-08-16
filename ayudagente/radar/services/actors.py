@@ -17,10 +17,23 @@ def get_actor(actor_id: int) -> Actor | None:
         Actor | None: The canonical actor. A merged duplicate resolves to the row that
             absorbed it, because acting on the duplicate would split the outreach history
             that saturation counting depends on.
+
+    Note:
+        Follows the chain, not one hop. Merges arrive one at a time — A into B, then B into
+        C — so stopping at the first pointer returns a row that is itself merged away, and
+        the caller writes to a duplicate believing it is canonical. The visited set is there
+        because a bad merge can make the chain a cycle, and an infinite loop inside a
+        request is a worse failure than a wrong actor.
     """
-    actor = Actor.objects.select_related("merged_into", "location").filter(id=actor_id).first()
-    if actor is not None and actor.merged_into_id is not None:
-        return Actor.objects.select_related("location").filter(id=actor.merged_into_id).first()
+    actor = Actor.objects.select_related("location").filter(id=actor_id).first()
+
+    seen = set()
+    while actor is not None and actor.merged_into_id is not None:
+        if actor.merged_into_id in seen:
+            break
+        seen.add(actor.merged_into_id)
+        actor = Actor.objects.select_related("location").filter(id=actor.merged_into_id).first()
+
     return actor
 
 
