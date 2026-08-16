@@ -517,7 +517,8 @@ Coarse to fine, and the order is load-bearing:
 ```bash
 make up          # Postgres and Redis
 make migrate
-make seed        # loads the demo event, so the graph is not empty
+make taxonomy    # the resource catalog, needed everywhere
+make seed        # development only: loads the demo event, so the graph is not empty
 make apikey      # mints a key into .env
 make run
 ```

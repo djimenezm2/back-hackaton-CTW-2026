@@ -26,7 +26,7 @@ MARKERS = $(if $(LIVE),-m "",)
 .DEFAULT_GOAL := help
 .PHONY: help init up down restart ps logs build rebuild \
         check lint format comments types test migrate migrations shell run superuser apikey \
-        seed unseed eval harvest pipeline worker
+        taxonomy gazetteer seed unseed eval harvest pipeline worker
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*##"; printf "Available commands:\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  make %-22s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -73,7 +73,13 @@ types: ## Pyrefly type check
 test: ## Run the suite (make test LIVE=1 to include tests that need real services)
 	$(UV) run pytest $(MARKERS) $(ARGS)
 
-seed: ## Load the seed datasets (idempotent). make seed ARGS="--list" to see them
+taxonomy: ## Load the resource catalog. Reference data: every environment needs it
+	$(MANAGE) load_taxonomy
+
+gazetteer: ## Load a country's places from GeoNames (make gazetteer ARGS=CO)
+	$(MANAGE) load_gazetteer $(ARGS)
+
+seed: ## Load the development fixtures (pilot corpus, demo scenario). Never in production
 	$(MANAGE) seed $(ARGS)
 
 unseed: ## Delete the seed datasets

@@ -34,8 +34,11 @@ Note:
     `agua` beside `water` splits one resource into two that can never match each other.
 """
 
+from collections.abc import Callable
+
 from ayudagente.radar.models import Requirement, ResourceType
-from ayudagente.radar.seeds.base import Counts, Seed, Writer
+
+Writer = Callable[[str], None]  # progress sink: `stdout.write`, `print` or a test collector
 
 # (key, display name, parent key, default unit, perishable) — a parent precedes its children
 RESOURCES = [
@@ -81,7 +84,7 @@ LEGACY_KEYS = {
 }
 
 
-def load(write: Writer) -> Counts:
+def load(write: Writer = lambda _: None) -> dict:
     """
     Bring the catalog to the canonical state: create what is missing, adopt what the pipeline
     invented, and retire the Spanish-keyed duplicates.
@@ -178,7 +181,7 @@ def _retire_legacy_keys(by_key: dict[str, ResourceType]) -> int:
     return retired
 
 
-def clear(write: Writer) -> int:
+def clear(write: Writer = lambda _: None) -> int:
     """
     Remove the taxonomy, children before parents.
 
@@ -204,12 +207,3 @@ def clear(write: Writer) -> int:
     kept = ResourceType.objects.filter(key__in=[key for key, *_ in RESOURCES]).count()
     write(f"  removed {removed} resource types" + (f", {kept} still in use" if kept else ""))
     return removed
-
-
-SEED = Seed(
-    name="taxonomy",
-    description="Canonical resource taxonomy, shared by every event",
-    event_names=(),
-    load=load,
-    clear=clear,
-)

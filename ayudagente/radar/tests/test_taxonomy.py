@@ -9,7 +9,7 @@ pipeline invents — because that is the state every existing machine is actuall
 from django.test import TestCase
 
 from ayudagente.radar.models import Requirement, ResourceType
-from ayudagente.radar.seeds import taxonomy
+from ayudagente.radar.services import taxonomy
 from ayudagente.radar.services.requirements import resource_family
 from ayudagente.radar.tests.factories import (
     PEREIRA,

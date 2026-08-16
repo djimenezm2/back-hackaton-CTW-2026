@@ -823,8 +823,10 @@ def load(write: Writer) -> Counts:
             },
         )
 
-    # The taxonomy is a shared catalog, loaded by its own seed rather than invented here
+    # The catalog is reference data, loaded by `load_taxonomy` rather than invented here
     resources = {resource.key: resource for resource in ResourceType.objects.all()}
+    if not resources:
+        raise RuntimeError("the resource catalog is empty; run `manage.py load_taxonomy` first")
 
     event = Event.objects.create(
         hazard="earthquake",

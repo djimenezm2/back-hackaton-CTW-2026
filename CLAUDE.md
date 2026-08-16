@@ -10,12 +10,18 @@ for how the models relate. This file is the short version plus the rules that mu
 ## Commands
 
 ```bash
-make init      # .venv, deps, .env from .env.example
-make up        # Postgres (PostGIS + pgvector) and Redis
+make init                    # .venv, deps, .env from .env.example
+make up                      # Postgres (PostGIS + pgvector) and Redis
 make migrate
-make run
-make check     # ruff lint + ruff format --check + pyrefly + pytest
+make taxonomy                # resource catalog — reference data, every environment
+make gazetteer ARGS=CO       # a country's places — reference data, per country
+make start_event ARGS='...'  # open an emergency and queue its cold-start sweep
+make check                   # ruff + comment style + pyrefly + pytest
 ```
+
+`make seed` is **development only**: it loads the pilot corpus and the demo scenario. Anything
+a deployment depends on has its own loader, because reference data has no business sharing a
+`--clear` flag with a demo.
 
 `make help` lists everything. The database container publishes **5433**, not 5432, so it does
 not collide with a Postgres installed on the host.
