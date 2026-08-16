@@ -26,6 +26,7 @@ def make_event(**kwargs) -> Event:
         "name": "Sismo de prueba",
         "occurred_at": timezone.now(),
         "detection_source": "manual",
+        "country_code": "CO",
         "epicenter": PEREIRA,
     }
     defaults.update(kwargs)

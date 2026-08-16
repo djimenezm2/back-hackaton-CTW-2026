@@ -22,6 +22,8 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django.contrib.gis",
     "corsheaders",
+    # Registers the `unaccent` and trigram lookups; the extensions themselves are migrated
+    "django.contrib.postgres",
     "ayudagente.radar",
 ]
 

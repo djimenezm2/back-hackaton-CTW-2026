@@ -48,10 +48,10 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 "*/models/*.py" = ["RUF012"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["ayudagente", "backend"]
+known-first-party = ["agent_tools", "ayudagente", "backend"]
 
 [tool.pyrefly]
-project-includes = ["ayudagente", "backend"]
+project-includes = ["agent_tools", "ayudagente", "backend"]
 # Generated code, and the only place `models` is imported for its side effects alone.
 project-excludes = ["**/migrations/**"]
 # Matches `requires-python`, not the local interpreter, so 3.13+ syntax gets flagged here.
@@ -62,7 +62,7 @@ min-severity = "warn"
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "backend.settings"
 # Tests live next to the code they cover, so discovery starts at the product package.
-testpaths = ["ayudagente"]
+testpaths = ["agent_tools", "ayudagente"]
 python_files = ["test_*.py", "tests.py"]
 
 # The default run needs no external service. Anything that reaches Postgres, Azure or

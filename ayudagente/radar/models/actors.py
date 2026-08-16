@@ -20,6 +20,7 @@ from ayudagente.radar.choices import (
     Platform,
     ResolutionMethod,
     UnreachableReason,
+    precisions_at_least,
 )
 
 # Actor kinds that count as organizations. Query with `kind__in=ORGANIZATION_KINDS`.
@@ -109,8 +110,7 @@ class Location(models.Model):
         Returns:
             bool: True when it is precise enough for a match that demands that detail.
         """
-        scale = list(LocationPrecision.values)
-        return scale.index(self.precision) >= scale.index(precision)
+        return self.precision in precisions_at_least(precision)
 
 
 class Actor(models.Model):

@@ -96,6 +96,30 @@ class LocationPrecision(models.TextChoices):
     EXACT_POINT = "exact_point", "Exact point"
 
 
+def precisions_at_least(minimum: str) -> list[str]:
+    """
+    Precision values as fine as a minimum, or finer.
+
+    The declaration order of `LocationPrecision` is the scale, coarsest first. This is the
+    single place that knows it: `Location.is_at_least` compares one row against a floor and
+    the services filter a queryset against the same floor, and a second copy of the
+    ordering would let the two drift.
+
+    Args:
+        minimum (str): A `LocationPrecision` value to use as the floor.
+
+    Returns:
+        list[str]: The floor itself and everything finer.
+
+    Raises:
+        ValueError: When the value is not a `LocationPrecision`.
+    """
+    scale = list(LocationPrecision.values)
+    if minimum not in scale:
+        raise ValueError(f"unknown location precision {minimum!r}; expected one of {scale}")
+    return scale[scale.index(minimum) :]
+
+
 class GeocodeSource(models.TextChoices):
     GOOGLE = "google", "Google Geocoding"
     GAZETTEER = "gazetteer", "Administrative gazetteer (GeoNames)"

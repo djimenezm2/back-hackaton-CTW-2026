@@ -16,9 +16,15 @@ import math
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-from ayudagente.radar.choices import Direction, MatchStatus, RequirementStatus, Urgency
+from ayudagente.radar.choices import (
+    Direction,
+    LocationPrecision,
+    MatchStatus,
+    Urgency,
+    precisions_at_least,
+)
 from ayudagente.radar.models import Match, Requirement
-from ayudagente.radar.services.requirements import resource_family
+from ayudagente.radar.services.requirements import resource_family, routable
 
 # Beyond this, a pair needs a transport requirement to be actionable
 DIRECT_DELIVERY_KM = 30.0
@@ -26,6 +32,9 @@ DIRECT_DELIVERY_KM = 30.0
 TRANSPORT_PICKUP_KM = 250.0
 # Pairs scoring below this are noise, not proposals
 MIN_SCORE = 0.2
+# Invariant 7: a dot covering a whole region is an area, not a delivery address
+MIN_MATCH_PRECISION = LocationPrecision.ADMIN_2
+MATCHABLE_PRECISIONS = frozenset(precisions_at_least(MIN_MATCH_PRECISION))
 
 # Keyed by str: `Requirement.urgency` reaches us as a plain CharField value
 URGENCY_WEIGHT: dict[str, float] = {
@@ -77,6 +86,18 @@ def score_pair(need: Requirement, offer: Requirement, distance_km: float) -> flo
     )
 
 
+def is_matchable_location(requirement: Requirement) -> bool:
+    """
+    Report whether a requirement is located precisely enough to be matched.
+
+    Returns:
+        bool: True when its location is at least `MIN_MATCH_PRECISION`. A need placed on a
+            whole region and a truck heading to a street address are both one dot, and
+            pairing them proposes a delivery to an area, not to a place.
+    """
+    return requirement.location.precision in MATCHABLE_PRECISIONS
+
+
 def _is_transport(requirement: Requirement) -> bool:
     resource = requirement.resource
     return resource.key == TRANSPORT_KEY or any(
@@ -118,13 +139,38 @@ def propose_match(
     """
     Create or refresh one proposed match, respecting the frozen-state invariant.
 
-    Returns the match, or None when an existing match is past `proposed` — a human is
-    already involved and the row must not be rewritten.
+    Every guard is re-checked rather than assumed, because this is a public entry point:
+    `run_matching_pass` filters its candidates up front, but a tool call or a shell session
+    arrives with two arbitrary rows.
+
+    Returns:
+        Match | None: The match, or None when an existing one is past `proposed` — a human
+            is already involved and the row must not be rewritten.
+
+    Raises:
+        ValueError: On crossed directions, a cross-event pair, a location too imprecise to
+            deliver to, or a `via_transport` that is not an offer of transport.
     """
     if need.direction != Direction.NEEDS or offer.direction != Direction.OFFERS:
         raise ValueError("need must have direction=needs and offer direction=offers")
-    if via_transport is not None and not _is_transport(via_transport):
-        raise ValueError("via_transport must be a transport-family requirement")
+
+    if need.event_id != offer.event_id:
+        raise ValueError("need and offer belong to different events")
+
+    for requirement, label in ((need, "need"), (offer, "offer")):
+        if not is_matchable_location(requirement):
+            raise ValueError(
+                f"{label} location is {requirement.location.precision}, coarser than the "
+                f"{MIN_MATCH_PRECISION} floor a delivery needs"
+            )
+
+    if via_transport is not None:
+        if not _is_transport(via_transport):
+            raise ValueError("via_transport must be a transport-family requirement")
+        if via_transport.direction != Direction.OFFERS:
+            raise ValueError("via_transport must be an offer of transport, not a need for one")
+        if via_transport.event_id != need.event_id:
+            raise ValueError("via_transport belongs to a different event")
 
     if distance_km is None:
         distance_km = round(geodesic_km(need.location.point, offer.location.point), 1)
@@ -166,13 +212,19 @@ def run_matching_pass(event_id: int) -> dict:
 
     Returns:
         dict: `proposed` (created/updated match ids), `unreachable_need_ids`.
+
+    Note:
+        Candidates pass the same gate `propose_match` enforces — `routable` plus the
+        precision floor — because the pass calls it. Filtering here rather than letting it
+        raise is what keeps one badly geocoded requirement from killing the whole batch.
     """
-    open_reqs = list(
-        Requirement.objects.filter(
-            event_id=event_id,
-            status__in=(RequirementStatus.OPEN, RequirementStatus.PARTIAL),
-        ).select_related("resource", "location", "destination", "actor")
-    )
+    open_reqs = [
+        r
+        for r in routable(Requirement.objects.filter(event_id=event_id)).select_related(
+            "resource", "location", "destination", "actor"
+        )
+        if is_matchable_location(r)
+    ]
 
     transports = [r for r in open_reqs if _is_transport(r) and r.direction == Direction.OFFERS]
     needs = [

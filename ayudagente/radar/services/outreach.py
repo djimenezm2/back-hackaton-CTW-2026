@@ -6,7 +6,12 @@ Nothing here sends anything. Every message resolves to a link a human clicks —
 the body, pick the channel and build that link exactly once per finding.
 """
 
-from ayudagente.radar.choices import ContactKind, OutreachChannel, OutreachPurpose
+from ayudagente.radar.choices import (
+    ContactKind,
+    OutreachChannel,
+    OutreachPurpose,
+    UnreachableReason,
+)
 from ayudagente.radar.models import ContactPoint, Match, Observation, Outreach, Requirement
 
 CHANNEL_BY_CONTACT_KIND = {
@@ -15,6 +20,29 @@ CHANNEL_BY_CONTACT_KIND = {
     ContactKind.PHONE: OutreachChannel.PHONE_CALL,
     ContactKind.HANDLE: OutreachChannel.DIRECT_MESSAGE,
 }
+
+# Reasons a channel is closed for good. A bounce may be transient; these are not.
+REFUSED_UNREACHABLE_REASONS = frozenset(
+    {
+        UnreachableReason.OPTED_OUT,
+        UnreachableReason.INVALID,
+    }
+)
+
+
+def match_participants(match: Match) -> set[int]:
+    """
+    Actor ids that are party to a match: the one needing, the one offering, the carrier.
+
+    Returns:
+        set[int]: Everyone it is legitimate to write to about this match. Proposing a
+            message about someone else's pairing to an unrelated actor is a privacy leak,
+            not a routing mistake.
+    """
+    actors = {match.need.actor_id, match.offer.actor_id}
+    if match.via_transport is not None:
+        actors.add(match.via_transport.actor_id)
+    return actors
 
 
 def build_target_url(
@@ -71,12 +99,21 @@ def draft_outreach(
             rather than approximately true.
 
     Raises:
-        ValueError: If the contact point cannot carry a message. A bank account is a way to
-            give someone money, not a way to talk to them.
+        ValueError: If the contact point cannot carry a message (a bank account is a way to
+            give someone money, not a way to talk to them), if the actor asked not to be
+            contacted, or if the recipient is not a party to the match being introduced.
     """
     channel = CHANNEL_BY_CONTACT_KIND.get(ContactKind(contact_point.kind))
     if channel is None or not contact_point.can_carry_a_message:
         raise ValueError(f"contact kind {contact_point.kind!r} is not a messaging channel")
+
+    if contact_point.unreachable_reason in REFUSED_UNREACHABLE_REASONS:
+        raise ValueError(
+            f"contact point {contact_point.id} is closed ({contact_point.unreachable_reason})"
+        )
+
+    if match is not None and contact_point.actor_id not in match_participants(match):
+        raise ValueError(f"actor {contact_point.actor_id} is not a party to match {match.id}")
 
     anchor = match or in_reply_to or about_requirement
     key = Outreach.build_idempotency_key(
